@@ -1,5 +1,5 @@
-# AfterIDE Railway Requirements - Minimal version
-# Essential packages only for Railway deployment
+# AfterIDE Railway Requirements - Essential packages only
+# Minimal version for Railway deployment
 
 # FastAPI and ASGI
 fastapi==0.104.1
@@ -24,9 +24,7 @@ email-validator==2.1.0
 
 # Utilities
 pydantic==2.5.0
-pydantic-settings==2.1.0
 structlog==23.2.0
-python-json-logger==2.0.7
 
 # Container and execution
 docker==6.1.3
