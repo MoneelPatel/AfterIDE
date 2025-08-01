@@ -18,7 +18,6 @@ from app.core.database import get_db
 
 router = APIRouter()
 
-
 @router.post("/", response_model=Dict[str, Any])
 async def create_session(
     name: str,
@@ -60,7 +59,6 @@ async def create_session(
         "max_execution_time": session.max_execution_time
     }
 
-
 @router.get("/", response_model=List[Dict[str, Any]])
 async def list_sessions(
     current_user: Dict[str, Any] = Depends(get_current_user_dependency),
@@ -91,12 +89,10 @@ async def list_sessions(
             "max_cpu_cores": session.max_cpu_cores,
             "max_execution_time": session.max_execution_time,
             "created_at": session.created_at.isoformat(),
-            "updated_at": session.updated_at.isoformat(),
-            "last_activity": session.last_activity.isoformat()
+            "updated_at": session.updated_at.isoformat()
         }
         for session in sessions
     ]
-
 
 @router.get("/{session_id}", response_model=Dict[str, Any])
 async def get_session(
@@ -108,31 +104,24 @@ async def get_session(
     Get a specific session by ID.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Session information
+        
+    Raises:
+        HTTPException: If session not found or access denied
     """
     session_service = SessionService(db)
-    session = await session_service.get_session(session_id)
+    session = await session_service.get_session(session_id, str(current_user["id"]))
     
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
-    
-    # Check if user owns this session
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Ensure all attributes are loaded to avoid lazy loading issues in tests
-    await db.refresh(session)
     
     return {
         "id": str(session.id),
@@ -145,10 +134,8 @@ async def get_session(
         "max_cpu_cores": session.max_cpu_cores,
         "max_execution_time": session.max_execution_time,
         "created_at": session.created_at.isoformat(),
-        "updated_at": session.updated_at.isoformat(),
-        "last_activity": session.last_activity.isoformat()
+        "updated_at": session.updated_at.isoformat()
     }
-
 
 @router.put("/{session_id}", response_model=Dict[str, Any])
 async def update_session(
@@ -161,54 +148,43 @@ async def update_session(
     Update a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         updates: Session updates
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Updated session information
+        
+    Raises:
+        HTTPException: If session not found or access denied
     """
     session_service = SessionService(db)
+    session = await session_service.update_session(
+        session_id, 
+        str(current_user["id"]), 
+        updates
+    )
     
-    # First check if session exists and user has access
-    session = await session_service.get_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
     
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Update session
-    updated_session = await session_service.update_session(session_id, updates)
-    
-    if not updated_session:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update session"
-        )
-    
     return {
-        "id": str(updated_session.id),
-        "name": updated_session.name,
-        "description": updated_session.description,
-        "status": updated_session.status,
-        "config": json.loads(updated_session.config) if isinstance(updated_session.config, str) else updated_session.config,
-        "expires_at": updated_session.expires_at.isoformat(),
-        "max_memory_mb": updated_session.max_memory_mb,
-        "max_cpu_cores": updated_session.max_cpu_cores,
-        "max_execution_time": updated_session.max_execution_time,
-        "created_at": updated_session.created_at.isoformat(),
-        "updated_at": updated_session.updated_at.isoformat(),
-        "last_activity": updated_session.last_activity.isoformat()
+        "id": str(session.id),
+        "name": session.name,
+        "description": session.description,
+        "status": session.status,
+        "config": json.loads(session.config) if isinstance(session.config, str) else session.config,
+        "expires_at": session.expires_at.isoformat(),
+        "max_memory_mb": session.max_memory_mb,
+        "max_cpu_cores": session.max_cpu_cores,
+        "max_execution_time": session.max_execution_time,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat()
     }
-
 
 @router.delete("/{session_id}")
 async def delete_session(
@@ -220,40 +196,26 @@ async def delete_session(
     Delete a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Success message
+        
+    Raises:
+        HTTPException: If session not found or access denied
     """
     session_service = SessionService(db)
+    success = await session_service.delete_session(session_id, str(current_user["id"]))
     
-    # First check if session exists and user has access
-    session = await session_service.get_session(session_id)
-    if not session:
+    if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
     
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Delete session
-    success = await session_service.delete_session(session_id)
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete session"
-        )
-    
     return {"message": "Session deleted successfully"}
-
 
 @router.post("/{session_id}/start")
 async def start_session(
@@ -265,47 +227,30 @@ async def start_session(
     Start a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Session status
+        
+    Raises:
+        HTTPException: If session not found or cannot be started
     """
     session_service = SessionService(db)
+    session = await session_service.start_session(session_id, str(current_user["id"]))
     
-    # Check if session exists and user has access
-    session = await session_service.get_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Update session status to active
-    updated_session = await session_service.update_session(
-        session_id, 
-        {"status": SessionStatus.ACTIVE.value}
-    )
-    
-    if not updated_session:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to start session"
+            detail="Session not found or cannot be started"
         )
     
     return {
-        "id": str(updated_session.id),
-        "status": updated_session.status,
+        "id": str(session.id),
+        "status": session.status,
         "message": "Session started successfully"
     }
-
 
 @router.post("/{session_id}/pause")
 async def pause_session(
@@ -317,47 +262,30 @@ async def pause_session(
     Pause a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Session status
+        
+    Raises:
+        HTTPException: If session not found or cannot be paused
     """
     session_service = SessionService(db)
+    session = await session_service.pause_session(session_id, str(current_user["id"]))
     
-    # Check if session exists and user has access
-    session = await session_service.get_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Update session status to paused (using a custom status)
-    updated_session = await session_service.update_session(
-        session_id, 
-        {"status": "paused"}
-    )
-    
-    if not updated_session:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to pause session"
+            detail="Session not found or cannot be paused"
         )
     
     return {
-        "id": str(updated_session.id),
-        "status": updated_session.status,
+        "id": str(session.id),
+        "status": session.status,
         "message": "Session paused successfully"
     }
-
 
 @router.post("/{session_id}/resume")
 async def resume_session(
@@ -366,50 +294,33 @@ async def resume_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Resume a paused session.
+    Resume a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Session status
+        
+    Raises:
+        HTTPException: If session not found or cannot be resumed
     """
     session_service = SessionService(db)
+    session = await session_service.resume_session(session_id, str(current_user["id"]))
     
-    # Check if session exists and user has access
-    session = await session_service.get_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Update session status to active
-    updated_session = await session_service.update_session(
-        session_id, 
-        {"status": SessionStatus.ACTIVE.value}
-    )
-    
-    if not updated_session:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to resume session"
+            detail="Session not found or cannot be resumed"
         )
     
     return {
-        "id": str(updated_session.id),
-        "status": updated_session.status,
+        "id": str(session.id),
+        "status": session.status,
         "message": "Session resumed successfully"
     }
-
 
 @router.post("/{session_id}/stop")
 async def stop_session(
@@ -421,40 +332,35 @@ async def stop_session(
     Stop a session.
     
     Args:
-        session_id: Session identifier
+        session_id: Session ID
         current_user: Current authenticated user
         db: Database session
         
     Returns:
         Session status
+        
+    Raises:
+        HTTPException: If session not found or cannot be stopped
     """
     session_service = SessionService(db)
+    session = await session_service.stop_session(session_id, str(current_user["id"]))
     
-    # Check if session exists and user has access
-    session = await session_service.get_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found"
-        )
-    
-    if str(session.user_id) != str(current_user["id"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Terminate session
-    success = await session_service.terminate_session(session_id)
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to stop session"
+            detail="Session not found or cannot be stopped"
         )
     
     return {
-        "id": session_id,
-        "status": SessionStatus.TERMINATED.value,
+        "id": str(session.id),
+        "status": session.status,
         "message": "Session stopped successfully"
-    } 
+    }
+
+@router.get("/status")
+async def sessions_status():
+    """Get sessions service status."""
+    return {
+        "message": "Sessions service is running",
+        "status": "active"
+    }
