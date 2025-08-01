@@ -2,7 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "cd backend && python main_fallback.py"
+startCommand = "cd backend && python main.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 
@@ -15,7 +15,7 @@ LOG_LEVEL = "INFO"
 name = "afteride-backend"
 source = "backend"
 buildCommand = "pip install -r requirements-railway.txt"
-startCommand = "python main_fallback.py"
+startCommand = "python main.py"
 
 [[services]]
 name = "afteride-frontend"

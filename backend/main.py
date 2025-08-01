@@ -22,6 +22,7 @@ if __name__ == "__main__":
     print(f"🚀 Starting AfterIDE on port {port}")
     print(f"📁 Working directory: {os.getcwd()}")
     print(f"🐍 Python path: {sys.path}")
+    print(f"🌐 Railway domain: {os.getenv('RAILWAY_PUBLIC_DOMAIN', 'not set')}")
     
     # Start the server
     uvicorn.run(
