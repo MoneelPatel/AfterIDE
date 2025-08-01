@@ -4,8 +4,7 @@ nixPkgs = ["python311", "gcc", "libpq-dev", "pip"]
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
-  "pip install -r requirements-railway.txt --no-cache-dir",
-  "python setup_railway.py"
+  "python install_dependencies.py"
 ]
 
 [phases.build]

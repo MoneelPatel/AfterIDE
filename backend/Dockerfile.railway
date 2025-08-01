@@ -1,0 +1,39 @@
+# Use Python 3.11 slim image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Upgrade pip and install dependencies
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt --no-cache-dir
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /tmp/afteride
+
+# Make scripts executable
+RUN chmod +x install_dependencies.py
+RUN chmod +x main.py
+
+# Add current directory to Python path
+ENV PYTHONPATH=/app
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["python", "main.py"] 
