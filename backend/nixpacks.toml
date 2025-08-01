@@ -4,11 +4,11 @@ nixPkgs = ["python311", "gcc", "libpq-dev", "pip"]
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
-  "python install_dependencies.py"
+  "pip install -r requirements-railway.txt"
 ]
 
 [phases.build]
 cmds = ["echo 'Build phase completed'"]
 
 [start]
-cmd = "cd backend && python main.py" 
+cmd = "python main.py" 

@@ -2,6 +2,7 @@
 builder = "nixpacks"
 
 [deploy]
+startCommand = "cd backend && python main.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 
@@ -9,27 +10,6 @@ restartPolicyMaxRetries = 10
 ENVIRONMENT = "production"
 DEBUG = "false"
 LOG_LEVEL = "INFO"
-
-[[services]]
-name = "afteride-backend"
-source = "backend"
-buildCommand = "pip install -r requirements-railway.txt"
-startCommand = "python main.py"
-variables = [
-  "ENVIRONMENT=production",
-  "DEBUG=false",
-  "LOG_LEVEL=INFO"
-]
-
-[[services]]
-name = "afteride-frontend"
-source = "frontend"
-buildCommand = "npm ci && npm run build"
-startCommand = "npx serve -s dist -l $PORT"
-variables = [
-  "NODE_ENV=production",
-  "VITE_API_URL=${RAILWAY_STATIC_URL_AFTERIDE_BACKEND}/api/v1"
-]
 
 [[services]]
 name = "postgres"

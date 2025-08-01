@@ -1,117 +1,121 @@
 # AfterIDE Deployment Guide
 
-This guide will help you deploy both the frontend and backend services to Railway.
+This guide will help you deploy AfterIDE to Railway, starting with the backend and then adding the frontend.
 
 ## Current Setup
 
-Your project is configured with 4 services:
-1. **afteride-backend** - FastAPI backend service
-2. **afteride-frontend** - React frontend application
-3. **postgres** - PostgreSQL database
-4. **redis** - Redis cache
+Your project is configured with 3 services:
+1. **Backend** - FastAPI backend service (main deployment)
+2. **postgres** - PostgreSQL database
+3. **redis** - Redis cache
 
 ## Deployment Steps
 
-### 1. Railway Configuration
+### 1. Backend Deployment (Current Focus)
 
-Your `railway.toml` is already configured with all services. The key configuration:
+Your `railway.toml` is configured for backend deployment:
 
 ```toml
-[[services]]
-name = "afteride-backend"
-source = "backend"
-buildCommand = "pip install -r requirements-railway.txt"
-startCommand = "python main.py"
+[build]
+builder = "nixpacks"
 
-[[services]]
-name = "afteride-frontend"
-source = "frontend"
-buildCommand = "npm ci && npm run build"
-startCommand = "npx serve -s dist -l $PORT"
-variables = [
-  "NODE_ENV=production",
-  "VITE_API_URL=${RAILWAY_STATIC_URL_AFTERIDE_BACKEND}/api/v1"
-]
+[deploy]
+startCommand = "cd backend && python main.py"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[deploy.variables]
+ENVIRONMENT = "production"
+DEBUG = "false"
+LOG_LEVEL = "INFO"
 ```
 
 ### 2. Environment Variables
 
-You need to set these environment variables in Railway:
+Set these environment variables in Railway dashboard:
 
-#### Backend Service Variables:
-- `ENVIRONMENT=production`
-- `DEBUG=false`
-- `LOG_LEVEL=INFO`
+#### Required Variables:
 - `SECRET_KEY=your-super-secret-key-here`
 - `POSTGRES_PASSWORD=your-secure-password`
 
-#### Frontend Service Variables:
-- `NODE_ENV=production`
-- `VITE_API_URL=${RAILWAY_STATIC_URL_AFTERIDE_BACKEND}/api/v1`
-
-#### Database Service Variables:
-- `POSTGRES_DB=afteride`
-- `POSTGRES_USER=postgres`
-- `POSTGRES_PASSWORD=${POSTGRES_PASSWORD}`
+#### Optional Variables:
+- `ENVIRONMENT=production`
+- `DEBUG=false`
+- `LOG_LEVEL=INFO`
 
 ### 3. Deployment Process
 
-1. **Push to GitHub**: Ensure all changes are committed and pushed
-2. **Connect to Railway**: Link your GitHub repository to Railway
-3. **Deploy Services**: Railway will automatically deploy all 4 services
-4. **Set Environment Variables**: Configure the variables listed above
-5. **Verify Deployment**: Check that all services are running
+1. **Commit and Push**: Use the deployment script or manually:
+   ```bash
+   git add .
+   git commit -m "Fix deployment configuration"
+   git push origin main
+   ```
 
-### 4. Service URLs
+2. **Deploy to Railway**: Railway will automatically deploy using nixpacks
 
-After deployment, you'll have:
-- **Frontend**: `https://your-project-name.up.railway.app` (or custom domain)
-- **Backend**: `https://afteride-backend-production.up.railway.app`
-- **Database**: Internal service (not publicly accessible)
-- **Redis**: Internal service (not publicly accessible)
+3. **Set Environment Variables**: Configure in Railway dashboard
 
-### 5. Testing the Deployment
+4. **Test Backend**: Verify the backend is working
 
-1. **Frontend**: Visit the frontend URL to see the React application
-2. **Backend**: Visit `/health` endpoint to check backend status
-3. **API**: Test API endpoints at `/api/v1/status`
+### 4. Testing the Backend
+
+After deployment, test these endpoints:
+- **Root**: `https://your-app-name.up.railway.app/`
+- **Health**: `https://your-app-name.up.railway.app/health`
+- **API Docs**: `https://your-app-name.up.railway.app/docs`
+- **API Status**: `https://your-app-name.up.railway.app/api/v1/status`
+
+### 5. Frontend Deployment (Next Step)
+
+Once the backend is working, we'll deploy the frontend as a separate service:
+
+1. **Create Frontend Service**: Add to Railway dashboard
+2. **Configure Build**: Use Node.js buildpack
+3. **Set Environment**: Configure API URL to point to backend
+4. **Deploy**: Build and deploy frontend
 
 ### 6. Troubleshooting
 
-#### Frontend not connecting to backend:
-- Check `VITE_API_URL` environment variable
-- Ensure backend service is running
-- Verify CORS settings in backend
+#### Build Failures:
+- Check Railway logs for specific errors
+- Verify all dependencies are in requirements-railway.txt
+- Ensure Python version compatibility
 
-#### Database connection issues:
+#### Database Connection:
 - Check PostgreSQL service is running
 - Verify database credentials
 - Check connection string format
 
-#### Build failures:
-- Check build logs in Railway dashboard
-- Verify all dependencies are in requirements.txt/package.json
-- Ensure Node.js and Python versions are compatible
+#### API Issues:
+- Verify backend is running
+- Check CORS settings
+- Test individual endpoints
 
 ## Current Status
 
-✅ **Backend**: Configured and ready for deployment
-✅ **Frontend**: Configured and ready for deployment  
-✅ **Database**: PostgreSQL service configured
-✅ **Redis**: Redis service configured
-✅ **Environment Variables**: Configured in railway.toml
+✅ **Backend Configuration**: Fixed and ready for deployment
+✅ **Nixpacks Configuration**: Updated with correct start command
+✅ **Requirements**: All dependencies included
+✅ **Database Services**: PostgreSQL and Redis configured
+
+## Quick Deploy
+
+Run the deployment script from the project root:
+```bash
+./deploy_backend.sh
+```
 
 ## Next Steps
 
-1. **Deploy to Railway**: Push your code and deploy
-2. **Set Environment Variables**: Configure in Railway dashboard
-3. **Test Both Services**: Verify frontend and backend are working
-4. **Set Custom Domain**: Configure your preferred domain name
+1. **Deploy Backend**: Push code and deploy to Railway
+2. **Test Backend**: Verify all endpoints are working
+3. **Deploy Frontend**: Add frontend as separate service
+4. **Connect Services**: Configure frontend to use backend API
 
-## Access URLs
+## Expected URLs
 
-After deployment, you should be able to access:
-- **Frontend Application**: `https://your-project-name.up.railway.app`
-- **Backend API**: `https://afteride-backend-production.up.railway.app`
-- **API Documentation**: `https://afteride-backend-production.up.railway.app/docs`
-- **Health Check**: `https://afteride-backend-production.up.railway.app/health` 
+After successful deployment:
+- **Backend**: `https://your-app-name.up.railway.app`
+- **API Documentation**: `https://your-app-name.up.railway.app/docs`
+- **Health Check**: `https://your-app-name.up.railway.app/health` 
