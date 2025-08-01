@@ -1,3 +1,10 @@
+# AfterIDE Backend Requirements
+# Note: Pip is automatically upgraded to latest version in setup.sh to eliminate warning messages
+# This ensures users never see "pip version X is available" warnings
+
+# Latest pip (automatically upgraded during setup)
+pip>=25.0.0
+
 # FastAPI and ASGI
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -18,6 +25,7 @@ python-multipart==0.0.6
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
+email-validator==2.1.0
 
 # Container and execution
 docker==6.1.3

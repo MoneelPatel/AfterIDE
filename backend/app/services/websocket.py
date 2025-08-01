@@ -14,9 +14,11 @@ from datetime import datetime
 from app.schemas.websocket import (
     validate_message, create_error_message, create_pong_message,
     MessageType, BaseMessage, CommandMessage, FileUpdateMessage,
-    FileRequestMessage, FileListMessage, CommandResponseMessage
+    FileRequestMessage, FileListMessage, CommandResponseMessage,
+    FileDeleteMessage, FileRenameMessage, FolderCreateMessage
 )
 from app.services.terminal import terminal_service
+from app.services.workspace import WorkspaceService
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +37,15 @@ class WebSocketManager:
         
         # Message queue for offline scenarios
         self.message_queue: Dict[str, list] = {}
+        
+        # Workspace service (will be set by dependency injection)
+        self.workspace_service = None
+    
+    def set_workspace_service(self, workspace_service: WorkspaceService):
+        """Set the workspace service for database operations."""
+        self.workspace_service = workspace_service
+        # Also set it for the terminal service
+        terminal_service.set_workspace_service(workspace_service)
     
     async def connect(
         self,
@@ -225,7 +236,8 @@ class WebSocketManager:
                 result = await terminal_service.execute_command(
                     session_id=session_id,
                     command=command_msg.command,
-                    timeout=30
+                    timeout=30,
+                    working_directory=command_msg.working_directory
                 )
                 
                 # Create response message
@@ -235,7 +247,17 @@ class WebSocketManager:
                     stdout=result["stdout"],
                     stderr=result["stderr"],
                     return_code=result["return_code"],
-                    execution_time=result.get("execution_time", 0.0)
+                    execution_time=result.get("execution_time", 0.0),
+                    working_directory=result.get("working_directory")
+                )
+                
+                logger.info(
+                    "Sending command response",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    command=command_msg.command,
+                    working_directory=result.get("working_directory"),
+                    has_working_directory=bool(result.get("working_directory"))
                 )
                 
                 await self.send_message(connection_id, response)
@@ -287,11 +309,44 @@ class WebSocketManager:
                     "File update received",
                     connection_id=connection_id,
                     session_id=session_id,
-                    filename=file_msg.filename
+                    filename=file_msg.filename,
+                    content_length=len(file_msg.content),
+                    language=file_msg.language
                 )
                 
-                # TODO: Save file to database
-                # For now, broadcast to other connections in the session
+                # Save file to database using workspace service
+                if self.workspace_service:
+                    try:
+                        saved_file = await self.workspace_service.save_file(
+                            session_id=session_id,
+                            filepath=file_msg.filename,
+                            content=file_msg.content,
+                            language=file_msg.language or "python"
+                        )
+                        logger.info(
+                            "File saved successfully",
+                            connection_id=connection_id,
+                            session_id=session_id,
+                            filename=file_msg.filename,
+                            file_id=saved_file.id if saved_file else None
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to save file",
+                            connection_id=connection_id,
+                            session_id=session_id,
+                            filename=file_msg.filename,
+                            error=str(e)
+                        )
+                else:
+                    logger.error(
+                        "Workspace service not available for file save",
+                        connection_id=connection_id,
+                        session_id=session_id,
+                        filename=file_msg.filename
+                    )
+                
+                # Broadcast to other connections in the session
                 from app.schemas.websocket import FileUpdatedMessage
                 broadcast_message = FileUpdatedMessage(
                     type=MessageType.FILE_UPDATED,
@@ -302,6 +357,12 @@ class WebSocketManager:
                 )
                 
                 await self.broadcast_to_session(session_id, broadcast_message)
+                logger.info(
+                    "File update broadcast sent",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    filename=file_msg.filename
+                )
                 
             elif message.type == MessageType.FILE_REQUEST:
                 # Handle file request
@@ -315,14 +376,22 @@ class WebSocketManager:
                     filename=file_msg.filename
                 )
                 
-                # TODO: Retrieve file from database
-                # For now, send empty content
+                # Get file content from database using workspace service
+                content = ""
+                if self.workspace_service:
+                    content = await self.workspace_service.get_file_content(
+                        session_id=session_id,
+                        filepath=file_msg.filename
+                    ) or ""
+                
+                # Send file content back to client
+                
                 from app.schemas.websocket import FileContentMessage
                 response = FileContentMessage(
                     type=MessageType.FILE_CONTENT,
                     filename=file_msg.filename,
-                    content="",
-                    language="text"
+                    content=content,
+                    language="python"  # TODO: Detect language from file extension
                 )
                 
                 await self.send_message(connection_id, response)
@@ -339,16 +408,120 @@ class WebSocketManager:
                     directory=file_msg.directory
                 )
                 
-                # TODO: Get file list from database
-                # For now, send empty list
+                # Get file list from database using workspace service
+                files = []
+                if self.workspace_service:
+                    files = await self.workspace_service.get_workspace_files(
+                        session_id=session_id,
+                        directory=file_msg.directory or "/"
+                    )
+                
                 from app.schemas.websocket import FileListResponseMessage
                 response = FileListResponseMessage(
                     type=MessageType.FILE_LIST_RESPONSE,
-                    files=[],
+                    files=files,
                     directory=file_msg.directory or "/"
                 )
                 
                 await self.send_message(connection_id, response)
+                
+            elif message.type == MessageType.FILE_DELETE:
+                # Handle file delete
+                file_msg = FileDeleteMessage(**message_data)
+                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                
+                logger.info(
+                    "File delete request received",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    filename=file_msg.filename
+                )
+                
+                # Delete file from database using workspace service
+                if self.workspace_service:
+                    success = await self.workspace_service.delete_file(
+                        session_id=session_id,
+                        filepath=file_msg.filename
+                    )
+                    
+                    if success:
+                        # Broadcast delete notification to all connections in the session
+                        from app.schemas.websocket import FileDeletedMessage
+                        broadcast_message = FileDeletedMessage(
+                            type=MessageType.FILE_DELETED,
+                            filename=file_msg.filename,
+                            deleted_by=connection_id
+                        )
+                        await self.broadcast_to_session(session_id, broadcast_message)
+                
+            elif message.type == MessageType.FILE_RENAME:
+                # Handle file rename
+                file_msg = FileRenameMessage(**message_data)
+                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                
+                logger.info(
+                    "File rename request received",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    old_filename=file_msg.old_filename,
+                    new_filename=file_msg.new_filename
+                )
+                
+                # Rename file in database using workspace service
+                if self.workspace_service:
+                    success = await self.workspace_service.rename_file(
+                        session_id=session_id,
+                        old_filepath=file_msg.old_filename,
+                        new_filepath=file_msg.new_filename
+                    )
+                    
+                    if success:
+                        # Broadcast rename notification to all connections in the session
+                        from app.schemas.websocket import FileRenamedMessage
+                        broadcast_message = FileRenamedMessage(
+                            type=MessageType.FILE_RENAMED,
+                            old_filename=file_msg.old_filename,
+                            new_filename=file_msg.new_filename,
+                            renamed_by=connection_id
+                        )
+                        await self.broadcast_to_session(session_id, broadcast_message)
+                
+            elif message.type == MessageType.FOLDER_CREATE:
+                # Handle folder creation
+                folder_msg = FolderCreateMessage(**message_data)
+                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                
+                logger.info(
+                    "Folder create request received",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    folder_name=folder_msg.foldername,
+                    parent_path=folder_msg.parent_path
+                )
+                
+                # Create folder using workspace service
+                if self.workspace_service:
+                    try:
+                        folder_path = await self.workspace_service.create_folder(
+                            session_id=session_id,
+                            folder_name=folder_msg.foldername,
+                            parent_path=folder_msg.parent_path or "/"
+                        )
+                        
+                        # Broadcast folder creation notification to all connections in the session
+                        from app.schemas.websocket import FolderCreatedMessage
+                        broadcast_message = FolderCreatedMessage(
+                            type=MessageType.FOLDER_CREATED,
+                            foldername=folder_msg.foldername,
+                            folderpath=folder_path,
+                            parent_path=folder_msg.parent_path or "/"
+                        )
+                        await self.broadcast_to_session(session_id, broadcast_message)
+                        
+                    except Exception as e:
+                        logger.error("Failed to create folder", error=str(e), session_id=session_id, folder_name=folder_msg.foldername)
+                        error_msg = create_error_message("FOLDER_CREATE_FAILED", f"Failed to create folder: {str(e)}")
+                        await self.send_message(connection_id, error_msg)
                 
             elif message.type == MessageType.PING:
                 # Handle ping

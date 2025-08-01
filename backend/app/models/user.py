@@ -5,13 +5,12 @@ User authentication and profile management.
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Enum, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 import enum
 
-from app.core.database import Base
+from app.core.database import Base, get_uuid_column, get_uuid_default, get_json_column, get_boolean_column
 
 
 class UserRole(str, enum.Enum):
@@ -27,7 +26,7 @@ class User(Base):
     __tablename__ = "users"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(get_uuid_column(), primary_key=True, default=get_uuid_default())
     
     # Authentication
     username = Column(String(50), unique=True, nullable=False, index=True)
@@ -36,8 +35,8 @@ class User(Base):
     
     # Profile
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    preferences = Column(JSONB, default=dict, nullable=False)  # User preferences, settings
+    is_active = Column(get_boolean_column(), default=True, nullable=False)
+    preferences = Column(get_json_column(), default=dict, nullable=False)  # User preferences, settings
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -60,4 +59,9 @@ class User(Base):
     @property
     def is_reviewer(self) -> bool:
         """Check if user has reviewer role."""
-        return self.role in [UserRole.REVIEWER, UserRole.ADMIN] 
+        return self.role in [UserRole.REVIEWER, UserRole.ADMIN]
+    
+    @property
+    def is_active_bool(self) -> bool:
+        """Get is_active as boolean."""
+        return bool(self.is_active) 

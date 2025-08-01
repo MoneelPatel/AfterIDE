@@ -4,14 +4,16 @@ AfterIDE - WebSocket Router
 WebSocket endpoints for real-time terminal communication and file synchronization.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from typing import Dict, Set
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
+from typing import Dict, Set, Optional
 import structlog
 import json
 import uuid
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.services.websocket import WebSocketManager
+from app.services.workspace import WorkspaceService
 from app.services.auth import AuthService
 from app.services.session import SessionService
 from app.schemas.websocket import (
@@ -24,55 +26,106 @@ logger = structlog.get_logger(__name__)
 # WebSocket connection manager
 websocket_manager = WebSocketManager()
 
+# Dependency to get workspace service with database session
+async def get_workspace_service():
+    """Get workspace service with database session."""
+    async for db in get_db():
+        workspace_service = WorkspaceService(db)
+        # Set the workspace service for the WebSocket manager
+        websocket_manager.set_workspace_service(workspace_service)
+        return workspace_service
+
+
+async def get_user_session_id(user: any, session_service: SessionService) -> str:
+    """
+    Get or create a session ID for the user.
+    
+    Args:
+        user: User object
+        session_service: Session service instance
+        
+    Returns:
+        Session ID string
+    """
+    # Get user's sessions
+    user_sessions = await session_service.get_user_sessions(str(user.id))
+    
+    if user_sessions:
+        # Use the first active session
+        user_session = next((s for s in user_sessions if s.is_active), user_sessions[0])
+        return str(user_session.id)
+    else:
+        # Create a new session for the user
+        user_session = await session_service.create_session(
+            user_id=str(user.id),
+            name="Development Session",
+            description="User development workspace"
+        )
+        return str(user_session.id)
+
 
 @router.websocket("/ws/terminal/{session_id}")
 async def websocket_terminal(
     websocket: WebSocket,
     session_id: str,
-    token: str = None
+    token: Optional[str] = Query(None),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
 ):
     """
     WebSocket endpoint for terminal communication.
     
     Args:
         websocket: WebSocket connection
-        session_id: Session identifier
-        token: Authentication token (optional for development)
+        session_id: Session identifier (from frontend)
+        token: Authentication token from query parameter
+        workspace_service: Workspace service instance
     """
     connection_id = None
     try:
         # Accept the WebSocket connection
         await websocket.accept()
         
-        # For development, allow connections without authentication
-        user_id = None
+        # Authenticate user
+        user = None
+        actual_session_id = session_id
+        
         if token:
-            # TODO: Implement proper token validation
-            user_id = "dev-user"
+            # Validate token and get user
+            async for db in get_db():
+                user = await AuthService.get_current_user(db, token)
+                if user:
+                    # Get or create user's actual session
+                    session_service = SessionService(db)
+                    actual_session_id = await get_user_session_id(user, session_service)
+                    break
+        else:
+            # For development, allow connections without authentication
+            logger.warning("No authentication token provided, using default session")
         
         # Register connection
         connection_id = str(uuid.uuid4())
         await websocket_manager.connect(
             websocket=websocket,
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id,
+            session_id=actual_session_id,
+            user_id=str(user.id) if user else None,
             connection_type="terminal"
         )
         
         logger.info(
             "WebSocket terminal connected",
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id
+            frontend_session_id=session_id,
+            actual_session_id=actual_session_id,
+            user_id=str(user.id) if user else None
         )
         
         # Send welcome message
         welcome_message = ConnectionMessage(
             type=MessageType.CONNECTION_ESTABLISHED,
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id,
+            session_id=actual_session_id,
+            user_id=str(user.id) if user else None,
             message="Terminal connection established"
         )
         await websocket_manager.send_message(connection_id, welcome_message)
@@ -115,50 +168,64 @@ async def websocket_terminal(
 async def websocket_files(
     websocket: WebSocket,
     session_id: str,
-    token: str = None
+    token: Optional[str] = Query(None),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
 ):
     """
     WebSocket endpoint for file synchronization.
     
     Args:
         websocket: WebSocket connection
-        session_id: Session identifier
-        token: Authentication token (optional for development)
+        session_id: Session identifier (from frontend)
+        token: Authentication token from query parameter
+        workspace_service: Workspace service instance
     """
     connection_id = None
     try:
         # Accept the WebSocket connection
         await websocket.accept()
         
-        # For development, allow connections without authentication
-        user_id = None
+        # Authenticate user
+        user = None
+        actual_session_id = session_id
+        
         if token:
-            # TODO: Implement proper token validation
-            user_id = "dev-user"
+            # Validate token and get user
+            async for db in get_db():
+                user = await AuthService.get_current_user(db, token)
+                if user:
+                    # Get or create user's actual session
+                    session_service = SessionService(db)
+                    actual_session_id = await get_user_session_id(user, session_service)
+                    break
+        else:
+            # For development, allow connections without authentication
+            logger.warning("No authentication token provided, using default session")
         
         # Register connection
         connection_id = str(uuid.uuid4())
         await websocket_manager.connect(
             websocket=websocket,
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id,
+            session_id=actual_session_id,
+            user_id=str(user.id) if user else None,
             connection_type="files"
         )
         
         logger.info(
             "WebSocket files connected",
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id
+            frontend_session_id=session_id,
+            actual_session_id=actual_session_id,
+            user_id=str(user.id) if user else None
         )
         
         # Send welcome message
         welcome_message = ConnectionMessage(
             type=MessageType.CONNECTION_ESTABLISHED,
             connection_id=connection_id,
-            session_id=session_id,
-            user_id=user_id,
+            session_id=actual_session_id,
+            user_id=str(user.id) if user else None,
             message="File synchronization connection established"
         )
         await websocket_manager.send_message(connection_id, welcome_message)

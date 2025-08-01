@@ -90,6 +90,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
 
   // Connection methods
   const connectTerminal = async (sessionId: string, token?: string) => {
+    console.log('Connecting terminal WebSocket with session:', sessionId);
     terminalWebSocket.updateSessionId(sessionId);
     if (token) {
       terminalWebSocket.updateToken(token);
@@ -98,6 +99,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
   };
 
   const connectFiles = async (sessionId: string, token?: string) => {
+    console.log('Connecting files WebSocket with session:', sessionId);
     filesWebSocket.updateSessionId(sessionId);
     if (token) {
       filesWebSocket.updateToken(token);

@@ -11,7 +11,8 @@ import {
   DocumentArrowDownIcon,
   Cog6ToothIcon,
   EyeIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  PaperAirplaneIcon
 } from '@heroicons/react/24/outline';
 
 interface EditorToolbarProps {
@@ -22,6 +23,7 @@ interface EditorToolbarProps {
   onToggleMinimap: () => void;
   onToggleWordWrap: () => void;
   onOpenSettings: () => void;
+  onSubmitForReview?: () => void;
   isDirty: boolean;
   showMinimap: boolean;
   wordWrap: boolean;
@@ -29,6 +31,7 @@ interface EditorToolbarProps {
   replaceQuery: string;
   onFindQueryChange: (query: string) => void;
   onReplaceQueryChange: (query: string) => void;
+  canSubmit?: boolean;
 }
 
 const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -39,13 +42,15 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onToggleMinimap,
   onToggleWordWrap,
   onOpenSettings,
+  onSubmitForReview,
   isDirty,
   showMinimap,
   wordWrap,
   findQuery,
   replaceQuery,
   onFindQueryChange,
-  onReplaceQueryChange
+  onReplaceQueryChange,
+  canSubmit = false
 }) => {
   const [showFindReplace, setShowFindReplace] = useState(false);
   const [findOptions, setFindOptions] = useState({
@@ -113,6 +118,17 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <ArrowPathIcon className="w-4 h-4 mr-1" />
           Refresh
         </button>
+
+        {canSubmit && onSubmitForReview && (
+          <button
+            onClick={onSubmitForReview}
+            className="flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
+            title="Submit for review"
+          >
+            <PaperAirplaneIcon className="w-4 h-4 mr-1" />
+            Submit for Review
+          </button>
+        )}
       </div>
 
       {/* Center - Find/Replace */}

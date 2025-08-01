@@ -1,115 +1,59 @@
-# AfterIDE - Web-Based Integrated Development Environment
+# AfterIDE Project
 
-A secure, web-based IDE featuring real-time code execution, terminal emulation, and collaborative review capabilities.
+Welcome to your AfterIDE workspace! This is an online Python IDE with a terminal, text editor, and file directory.
 
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Docker & Docker Compose
-- PostgreSQL 15+
-
-### Development Setup
-
-1. **Clone and Setup**
-```bash
-git clone <repository-url>
-cd AfterIDE
-```
-
-2. **Backend Setup**
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-```
-
-3. **Frontend Setup**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-4. **Database Setup**
-```bash
-docker-compose up -d postgres redis
-```
-
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 AfterIDE/
-├── backend/                 # FastAPI Python backend
-│   ├── app/
-│   │   ├── api/            # API routes and endpoints
-│   │   ├── core/           # Core configuration and utilities
-│   │   ├── models/         # Database models
-│   │   ├── services/       # Business logic services
-│   │   ├── websocket/      # WebSocket handlers
-│   │   └── main.py         # FastAPI application entry point
-│   ├── tests/              # Backend tests
-│   ├── alembic/            # Database migrations
-│   └── requirements.txt    # Python dependencies
-├── frontend/               # React TypeScript frontend
-│   ├── src/
-│   │   ├── components/     # Reusable UI components
-│   │   ├── pages/          # Page components
-│   │   ├── hooks/          # Custom React hooks
-│   │   ├── services/       # API and WebSocket services
-│   │   ├── store/          # State management
-│   │   ├── types/          # TypeScript type definitions
-│   │   └── utils/          # Utility functions
-│   ├── public/             # Static assets
-│   └── package.json        # Node.js dependencies
-├── docker-compose.yml      # Development environment
-├── .env.example           # Environment variables template
-└── README.md              # This file
+├── backend/          # Python FastAPI backend
+├── frontend/         # React TypeScript frontend
+├── workspace/        # User workspace files
+├── config/           # Configuration files (pytest.ini, test-requirements.txt)
+├── docs/             # Documentation (TESTS.md, CLEANUP_SUMMARY.md)
+├── scripts/          # Utility scripts (run_tests.sh, run_terminal_tests.py)
+├── deploy/           # Deployment files (docker-compose.yml)
+├── setup/            # Setup files (env.example)
+├── main.py           # Main entry point
+├── requirements.txt  # Main Python dependencies
+└── README.md         # This file
 ```
 
-## 🛠️ Technology Stack
+## Getting Started
 
-### Frontend
-- React 18 + TypeScript
-- Vite (Build tool)
-- Tailwind CSS (Styling)
-- Monaco Editor (Code editor)
-- xterm.js (Terminal emulation)
-- WebSocket (Real-time communication)
+1. **Setup Environment**: Copy `setup/env.example` to `.env` and configure
+2. **Install Dependencies**: 
+   - Backend: `cd backend && pip install -r requirements.txt`
+   - Frontend: `cd frontend && npm install`
+3. **Run the Application**:
+   - Backend: `cd backend && python main.py`
+   - Frontend: `cd frontend && npm run dev`
 
-### Backend
-- FastAPI (Python web framework)
-- PostgreSQL (Database)
-- Redis (Caching & sessions)
-- Docker (Containerization)
-- WebSocket (Real-time communication)
+## Testing
 
-## 🔒 Security Features
+Run the comprehensive test suite:
+```bash
+cd scripts
+./run_tests.sh
+```
 
-- Container-based code execution sandboxing
-- Command validation and allowlisting
-- Resource limiting and monitoring
-- Input sanitization and validation
-- Comprehensive audit logging
+For detailed testing information, see `docs/TESTS.md`.
 
-## 📊 Features
+## Features
 
-- ✅ Real-time code editor with Python support
-- ✅ Integrated terminal with command execution
-- ✅ File system synchronization
-- ✅ Secure code execution environment
-- ✅ Code submission and review system
-- ✅ Performance monitoring and optimization
+- Real-time terminal with command execution
+- File system integration
+- Python script execution
+- WebSocket-based communication
+- Comprehensive test suite
+- Docker deployment support
 
-## 🚀 Deployment
+## Development
 
-See `DEPLOYMENT.md` for detailed deployment instructions.
+- **Backend**: FastAPI with SQLAlchemy
+- **Frontend**: React with TypeScript
+- **Testing**: pytest (backend) + vitest (frontend)
+- **Deployment**: Docker Compose
 
-## 📝 License
-
-MIT License - see LICENSE file for details.
+Happy coding!
 

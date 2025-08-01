@@ -187,14 +187,22 @@ class WebSocketClient {
    * Update session ID
    */
   updateSessionId(sessionId: string): void {
-    this.config.sessionId = sessionId;
+    // Only update if the session ID has actually changed
+    if (this.config.sessionId !== sessionId) {
+      console.log(`Updating session ID from ${this.config.sessionId} to ${sessionId}`);
+      this.config.sessionId = sessionId;
+    }
   }
 
   /**
    * Update authentication token
    */
   updateToken(token: string): void {
-    this.config.token = token;
+    // Only update if the token has actually changed
+    if (this.config.token !== token) {
+      console.log(`Updating token from ${this.config.token ? '***' : 'null'} to ${token ? '***' : 'null'}`);
+      this.config.token = token;
+    }
   }
 
   /**
@@ -361,15 +369,41 @@ class WebSocketClient {
 
 // WebSocket manager instances
 const getWebSocketUrl = (endpoint: string) => {
-  // Use relative URLs since the frontend has a proxy configuration
-  // that forwards WebSocket connections to the backend
-  // The endpoint should be like '/ws/terminal' and we'll append the session ID
-  return endpoint;
+  // In development, use the current window location to build WebSocket URL
+  // This will use the Vite dev server proxy to forward to the backend
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host; // This includes port
+  return `${protocol}//${host}${endpoint}`;
+};
+
+// Get user session ID from auth store
+const getUserSessionId = (): string => {
+  const token = localStorage.getItem('authToken');
+  if (!token) {
+    // Fallback to default session for unauthenticated users
+    return 'default-session';
+  }
+  
+  // For now, we'll use a simple hash of the token as session ID
+  // This will be replaced by the actual user session ID from the backend
+  let hash = 0;
+  for (let i = 0; i < token.length; i++) {
+    const char = token.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return `user-${Math.abs(hash)}`;
+};
+
+// Get authentication token
+const getAuthToken = (): string | null => {
+  return localStorage.getItem('authToken');
 };
 
 const terminalWebSocket = new WebSocketClient({
   url: getWebSocketUrl('/ws/terminal'),
-  sessionId: 'default-session',
+  sessionId: getUserSessionId(),
+  token: getAuthToken() || undefined,
   connectionType: 'terminal',
   maxReconnectAttempts: 5,
   reconnectDelay: 1000,
@@ -378,11 +412,44 @@ const terminalWebSocket = new WebSocketClient({
 
 const filesWebSocket = new WebSocketClient({
   url: getWebSocketUrl('/ws/files'),
-  sessionId: 'default-session',
+  sessionId: getUserSessionId(),
+  token: getAuthToken() || undefined,
   connectionType: 'files',
   maxReconnectAttempts: 5,
   reconnectDelay: 1000,
   heartbeatInterval: 30000
 });
+
+// Function to update WebSocket sessions when user logs in/out
+export const updateWebSocketSessions = () => {
+  const newSessionId = getUserSessionId();
+  const newToken = getAuthToken();
+  
+  console.log('updateWebSocketSessions called with session:', newSessionId);
+  
+  // Only update if the session ID or token has actually changed
+  const terminalStatus = terminalWebSocket.getConnectionStatus();
+  const filesStatus = filesWebSocket.getConnectionStatus();
+  
+  // Update session and token
+  terminalWebSocket.updateSessionId(newSessionId);
+  terminalWebSocket.updateToken(newToken || '');
+  
+  filesWebSocket.updateSessionId(newSessionId);
+  filesWebSocket.updateToken(newToken || '');
+  
+  // Only reconnect if currently connected and session/token changed
+  if (terminalStatus.isConnected) {
+    console.log('Reconnecting terminal WebSocket with new session');
+    terminalWebSocket.disconnect();
+    setTimeout(() => terminalWebSocket.connect(), 100); // Small delay to prevent race conditions
+  }
+  
+  if (filesStatus.isConnected) {
+    console.log('Reconnecting files WebSocket with new session');
+    filesWebSocket.disconnect();
+    setTimeout(() => filesWebSocket.connect(), 100); // Small delay to prevent race conditions
+  }
+};
 
 export { WebSocketClient, terminalWebSocket, filesWebSocket }; 

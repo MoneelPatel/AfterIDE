@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { useTheme } from '../contexts/ThemeContext'
-import { useWebSocket } from '../contexts/WebSocketContext'
-import FileTree from '../components/FileTree'
+import { useParams, useNavigate } from 'react-router-dom'
 import MonacoEditor from '../components/MonacoEditor'
+import { Play, Settings, Save, FileText, Folder, FolderOpen, Plus, Search, Terminal as TerminalIcon, X, Menu, Sun, Moon, Code, GitBranch } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { useTheme } from '../contexts/ThemeContext'
+import FileTree from '../components/FileTree'
 import FileTabs from '../components/FileTabs'
 import EditorToolbar from '../components/EditorToolbar'
 import EditorSettings from '../components/EditorSettings'
-import Terminal from '../components/Terminal'
+import XTerminal from '../components/XTerminal'
+import SubmissionForm from '../components/SubmissionForm'
+import { useWebSocket } from '../contexts/WebSocketContext'
+import { useAuthStore } from '../store/authStore'
+import { getUserSessionId, getAuthToken } from '../utils/session';
 
 interface Session {
   id: string
@@ -64,8 +70,10 @@ const EditorPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null)
   const [fileContent, setFileContent] = useState('')
   const [terminalOutput, setTerminalOutput] = useState('')
+  const [loadedDirectories, setLoadedDirectories] = useState<Set<string>>(new Set(['/']))
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
+  const { isAuthenticated, user } = useAuthStore()
   const { 
     connectTerminal, 
     connectFiles, 
@@ -75,7 +83,8 @@ const EditorPage: React.FC = () => {
     offFilesMessage, 
     terminalConnected,
     onTerminalMessage,
-    offTerminalMessage
+    offTerminalMessage,
+    filesConnected
   } = useWebSocket()
 
   // File tabs state
@@ -107,136 +116,331 @@ const EditorPage: React.FC = () => {
     theme: 'afteride-dark'
   })
 
+  // Submission state
+  const [showSubmissionForm, setShowSubmissionForm] = useState(false)
+
   // Initialize default files
   useEffect(() => {
-    const defaultFiles: FileNode[] = [
-      {
-        id: '1',
-        name: 'main.py',
-        type: 'file',
-        path: '/main.py',
-        content: `# Welcome to AfterIDE!
-# This is your main Python file.
+    // Load files from backend when files WebSocket connects
+    if (filesConnected) {
+      sendFilesMessage({
+        type: 'file_list',
+        directory: '/'
+      })
+    }
+  }, [filesConnected, sendFilesMessage])
 
-def hello_world():
-    print("Hello, AfterIDE!")
-    print("You can run this code in the terminal below.")
+  // Flatten hierarchical file tree to flat list
+  const flattenFileTree = (files: FileNode[]): FileNode[] => {
+    const flattened: FileNode[] = []
+    
+    const flatten = (nodes: FileNode[]) => {
+      nodes.forEach(node => {
+        // Add the node itself (without children to avoid circular references)
+        flattened.push({
+          ...node,
+          children: undefined
+        })
+        
+        // Recursively flatten children
+        if (node.children && node.children.length > 0) {
+          flatten(node.children)
+        }
+      })
+    }
+    
+    flatten(files)
+    return flattened
+  }
 
-if __name__ == "__main__":
-    hello_world()
-`,
-        language: 'python'
-      },
-      {
-        id: '2',
-        name: 'requirements.txt',
-        type: 'file',
-        path: '/requirements.txt',
-        content: `# Python dependencies
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
-structlog==23.2.0
-`,
-        language: 'text'
-      },
-      {
-        id: '3',
-        name: 'README.md',
-        type: 'file',
-        path: '/README.md',
-        content: `# AfterIDE Project
-
-Welcome to your AfterIDE workspace!
-
-## Getting Started
-
-1. Open the terminal below
-2. Run \`python main.py\` to execute your code
-3. Use \`ls\` to list files
-4. Use \`cat filename\` to view file contents
-
-## Features
-
-- Real-time terminal with command execution
-- File system integration
-- Python script execution
-- WebSocket-based communication
-
-Happy coding!
-`,
-        language: 'markdown'
-      },
-      {
-        id: '4',
-        name: 'src',
-        type: 'folder',
-        path: '/src',
-        children: [],
-        isExpanded: false
+  // Build hierarchical tree structure from flat file list
+  const buildHierarchicalTree = (flatFiles: FileNode[]): FileNode[] => {
+    const fileMap = new Map<string, FileNode>()
+    const rootFiles: FileNode[] = []
+    
+    // First pass: create all nodes and put them in the map
+    flatFiles.forEach(file => {
+      const nodeWithChildren = {
+        ...file,
+        children: file.type === 'folder' ? [] : undefined
       }
-    ]
+      fileMap.set(file.path, nodeWithChildren)
+    })
+    
+    // Second pass: build parent-child relationships
+    flatFiles.forEach(file => {
+      const pathParts = file.path.split('/').filter(part => part !== '')
+      
+      if (pathParts.length === 1) {
+        // Root level file/folder
+        const node = fileMap.get(file.path)
+        if (node) {
+          rootFiles.push(node)
+        }
+      } else {
+        // Nested file/folder - find parent and add to its children
+        const parentPath = '/' + pathParts.slice(0, -1).join('/')
+        const parentNode = fileMap.get(parentPath)
+        const currentNode = fileMap.get(file.path)
+        
+        if (parentNode && currentNode && parentNode.children) {
+          parentNode.children.push(currentNode)
+        }
+      }
+    })
+    
+    // Sort each level: folders first, then files, alphabetically
+    const sortNodes = (nodes: FileNode[]): FileNode[] => {
+      nodes.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type === 'folder' ? -1 : 1
+        }
+        return a.name.localeCompare(b.name)
+      })
+      
+      // Recursively sort children
+      nodes.forEach(node => {
+        if (node.children) {
+          node.children = sortNodes(node.children)
+        }
+      })
+      
+      return nodes
+    }
+    
+    return sortNodes(rootFiles)
+  }
 
-    setFiles(defaultFiles)
-    setSelectedFile(defaultFiles[0])
-    setFileContent(defaultFiles[0].content || '')
+  // Handle folder expansion - load files from subdirectory if not already loaded
+  const handleFolderExpansion = (folderPath: string) => {
+    if (!loadedDirectories.has(folderPath)) {
+      sendFilesMessage({
+        type: 'file_list',
+        directory: folderPath
+      })
+      setLoadedDirectories(prev => new Set([...prev, folderPath]))
+    }
+  }
 
-    // Open first file in tabs
-    setOpenTabs([{
-      id: defaultFiles[0].id,
-      name: defaultFiles[0].name,
-      path: defaultFiles[0].path,
-      language: defaultFiles[0].language || 'text',
-      isDirty: false,
-      isActive: true
-    }])
-    setActiveTabId(defaultFiles[0].id)
-
-    setIsLoading(false)
-  }, [])
-
-  // Connect to WebSocket on component mount
+  // Initialize WebSocket connections
   useEffect(() => {
     const connectWebSockets = async () => {
       try {
-        await connectTerminal('default-session')
-        await connectFiles('default-session')
+        // Get the current session ID and token from the WebSocket service
+        const sessionId = getUserSessionId();
+        const token = getAuthToken();
+        
+        console.log('EditorPage: Connecting WebSockets with session:', sessionId, 'authenticated:', isAuthenticated);
+        
+        // Only connect if not already connected
+        if (!terminalConnected) {
+          await connectTerminal(sessionId, token || undefined);
+        }
+        if (!filesConnected) {
+          await connectFiles(sessionId, token || undefined);
+        }
       } catch (error) {
         console.error('Failed to connect to WebSocket:', error)
       }
     }
 
-    connectWebSockets()
-  }, [connectTerminal, connectFiles])
+    // Only connect if user is authenticated and not already connected
+    if (isAuthenticated && (!terminalConnected || !filesConnected)) {
+      connectWebSockets()
+    }
+  }, [connectTerminal, connectFiles, isAuthenticated, terminalConnected, filesConnected])
 
   // Handle file synchronization messages
   useEffect(() => {
     const handleFilesMessage = (message: any) => {
-      if (message.type === 'file_updated') {
+      if (message.type === 'file_list_response') {
+        // Convert backend file format to frontend FileNode format
+        const backendFiles = message.files || []
+        const convertedFiles: FileNode[] = backendFiles.map((file: any, index: number) => ({
+          id: `file_${file.path}`,
+          name: file.name,
+          type: file.type === 'directory' ? 'folder' : 'file',
+          path: file.path,
+          content: '',
+          language: file.language || (file.name.endsWith('.py') ? 'python' : file.name.endsWith('.md') ? 'markdown' : 'text'),
+          size: file.size,
+          modified: file.modified,
+          children: file.type === 'directory' ? [] : undefined
+        }))
+        
+        // Update files, combining with existing files from other directories
+        setFiles(prevFiles => {
+          const fileMap = new Map<string, FileNode>()
+          
+          // Flatten existing hierarchical structure to get all files at all levels
+          const existingFlatFiles = flattenFileTree(prevFiles)
+          
+          // Add existing files to map
+          existingFlatFiles.forEach(file => fileMap.set(file.path, file))
+          
+          // Add new files (overwriting duplicates)
+          convertedFiles.forEach(file => fileMap.set(file.path, file))
+          
+          const allFlatFiles = Array.from(fileMap.values())
+          
+          // Build hierarchical tree structure
+          return buildHierarchicalTree(allFlatFiles)
+        })
+        
+        setIsLoading(false)
+        
+        // If no file is selected but we have files, select the first file (not folder)
+        if (!selectedFile) {
+          const firstFile = convertedFiles.find(file => file.type === 'file')
+          if (firstFile) {
+            handleFileSelect(firstFile)
+          }
+        }
+      } else if (message.type === 'file_content') {
+        // Set file content when loaded from backend
+        setFileContent(message.content || '')
+      } else if (message.type === 'file_updated') {
+        console.log('🔧 File update message received:', message.filename, message.language, 'content length:', message.content?.length)
+        
         // Update file content when it's modified by another client
-        const updatedFile = files.find(f => f.name === message.filename)
+        const updatedFile = files.find(f => f.path === message.filename)
         if (updatedFile) {
+          // File exists - update its content
           setFiles(prevFiles => 
             prevFiles.map(f => 
-              f.name === message.filename 
+              f.path === message.filename 
                 ? { ...f, content: message.content }
                 : f
             )
           )
           
           // Update current file content if it's the selected file
-          if (selectedFile?.name === message.filename) {
+          if (selectedFile?.path === message.filename) {
             setFileContent(message.content)
             setIsDirty(false)
+            
+            // Update tab dirty state
+            setOpenTabs(prev => prev.map(tab => 
+              tab.path === message.filename 
+                ? { ...tab, isDirty: false }
+                : tab
+            ))
           }
+        } else {
+          // File doesn't exist - this is a new file, add it to the file tree
+          const fileName = message.filename.split('/').pop() || 'unknown'
+          const newFile: FileNode = {
+            id: `file_${message.filename}`,
+            name: fileName,
+            type: 'file',
+            path: message.filename,
+            content: message.content,
+            language: message.language || 'text'
+          }
+          
+          // Add the new file to the file tree
+          setFiles(prevFiles => {
+            const fileMap = new Map<string, FileNode>()
+            
+            // Flatten existing hierarchical structure to get all files at all levels
+            const existingFlatFiles = flattenFileTree(prevFiles)
+            
+            // Add existing files to map
+            existingFlatFiles.forEach(file => fileMap.set(file.path, file))
+            
+            // Add the new file
+            fileMap.set(newFile.path, newFile)
+            
+            const allFlatFiles = Array.from(fileMap.values())
+            
+            // Build hierarchical tree structure
+            return buildHierarchicalTree(allFlatFiles)
+          })
+          
+          console.log('🔧 Added new file to file tree:', newFile.name, newFile.path)
         }
+      } else if (message.type === 'file_deleted') {
+        // Handle file deletion broadcast
+        const deletedFilePath = message.filename
+        
+        setFiles(prevFiles => {
+          // Flatten existing tree to get all files
+          const flatFiles = flattenFileTree(prevFiles)
+          
+          // Remove the deleted file
+          const remainingFiles = flatFiles.filter(file => file.path !== deletedFilePath)
+          
+          // Rebuild hierarchical tree
+          return buildHierarchicalTree(remainingFiles)
+        })
+        
+        // Close tab and clear selection if deleted file was selected
+        if (selectedFile?.path === deletedFilePath) {
+          setSelectedFile(null)
+          setFileContent('')
+          setActiveTabId('')
+        }
+        
+        // Remove tab if file was open
+        setOpenTabs(prev => prev.filter(tab => tab.path !== deletedFilePath))
+      } else if (message.type === 'folder_created') {
+        // Handle folder creation broadcast - refresh file list
+        sendFilesMessage({
+          type: 'file_list',
+          directory: '/'
+        })
+      } else if (message.type === 'file_renamed') {
+        // Handle file rename/move broadcast
+        const oldPath = message.old_filename
+        const newPath = message.new_filename
+        
+        setFiles(prevFiles => {
+          // Flatten existing tree to get all files
+          const flatFiles = flattenFileTree(prevFiles)
+          
+          // Update the renamed/moved file's path
+          const updatedFiles = flatFiles.map(file => 
+            file.path === oldPath 
+              ? { ...file, path: newPath, name: newPath.split('/').pop() || file.name }
+              : file
+          )
+          
+          // Rebuild hierarchical tree
+          return buildHierarchicalTree(updatedFiles)
+        })
+        
+        // Update selected file if it was the renamed/moved file
+        if (selectedFile?.path === oldPath) {
+          setSelectedFile(prev => prev ? {
+            ...prev,
+            path: newPath,
+            name: newPath.split('/').pop() || prev.name
+          } : null)
+        }
+        
+        // Update open tabs
+        setOpenTabs(prev => prev.map(tab => 
+          tab.path === oldPath 
+            ? { ...tab, path: newPath, name: newPath.split('/').pop() || tab.name }
+            : tab
+        ))
       }
     }
 
+    onFilesMessage('file_list_response', handleFilesMessage)
     onFilesMessage('file_updated', handleFilesMessage)
+    onFilesMessage('file_content', handleFilesMessage) // Added this line
+    onFilesMessage('file_deleted', handleFilesMessage) // Added this line
+    onFilesMessage('folder_created', handleFilesMessage) // Added this line
+    onFilesMessage('file_renamed', handleFilesMessage) // Added this line
 
     return () => {
+      offFilesMessage('file_list_response', handleFilesMessage)
       offFilesMessage('file_updated', handleFilesMessage)
+      offFilesMessage('file_content', handleFilesMessage) // Added this line
+      offFilesMessage('file_deleted', handleFilesMessage) // Added this line
+      offFilesMessage('folder_created', handleFilesMessage) // Added this line
+      offFilesMessage('file_renamed', handleFilesMessage) // Added this line
     }
   }, [files, selectedFile, onFilesMessage, offFilesMessage])
 
@@ -268,6 +472,12 @@ Happy coding!
       if (e.key === 'Escape' && isDragging) {
         setIsDragging(false)
       }
+      
+      // Prevent default browser Cmd+S and handle file saving
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        // The save will be handled by Monaco Editor's keyboard shortcut
+      }
     }
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -282,16 +492,17 @@ Happy coding!
       setIsDragging(false)
     }
 
+    document.addEventListener('keydown', handleKeyDown)
+    
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
-      document.addEventListener('keydown', handleKeyDown)
     }
 
     return () => {
+      document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
-      document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isDragging])
 
@@ -325,9 +536,19 @@ Happy coding!
   }
 
   const handleFileSelect = (file: FileNode) => {
+    // console.log('🔍 handleFileSelect called with:', file.path, file.name)
     setSelectedFile(file)
-    setFileContent(file.content || '')
     setIsDirty(false)
+
+    // Load file content from backend if it's a file
+    if (file.type === 'file') {
+      sendFilesMessage({
+        type: 'file_request',
+        filename: file.path
+      })
+    } else {
+      setFileContent('')
+    }
 
     // Add to tabs if not already open
     const existingTab = openTabs.find(tab => tab.id === file.id)
@@ -351,96 +572,177 @@ Happy coding!
     })))
   }
 
-  const handleFileCreate = (type: 'file' | 'folder', parentPath?: string) => {
-    const newId = Date.now().toString()
-    const newName = type === 'file' ? 'new_file.txt' : 'new_folder'
-    const newPath = parentPath ? `${parentPath}/${newName}` : `/${newName}`
-
-    const updateFiles = (files: FileNode[]): FileNode[] => {
-      return files.map(file => {
-        if (file.path === parentPath || (!parentPath && file.path === '/')) {
-          return {
-            ...file,
-            children: [...(file.children || []), {
-              id: newId,
-              name: newName,
-              type,
-              path: newPath,
-              children: type === 'folder' ? [] : undefined,
-              content: type === 'file' ? '' : undefined,
-              language: type === 'file' ? 'text' : undefined
-            }]
-          }
-        }
-        return file
+  const handleFileCreate = (type: 'file' | 'folder', parentPath?: string, name?: string) => {
+    if (!name) {
+      console.error('File/folder name is required');
+      return;
+    }
+    
+    const basePath = parentPath || '/'
+    const newPath = basePath === '/' ? `/${name}` : `${basePath}/${name}`
+    
+    if (type === 'file') {
+      // Get file extension for language detection
+      const extension = name.split('.').pop() || 'txt'
+      const languageMap: { [key: string]: string } = {
+        py: 'python',
+        js: 'javascript', 
+        ts: 'typescript',
+        jsx: 'javascript',
+        tsx: 'typescript',
+        html: 'html',
+        css: 'css',
+        json: 'json',
+        md: 'markdown',
+        txt: 'text',
+        sql: 'sql',
+        yaml: 'yaml',
+        yml: 'yaml'
+      }
+      const language = languageMap[extension] || 'text'
+      
+      // Send file creation message via WebSocket
+      sendFilesMessage({
+        type: 'file_update',
+        filename: newPath,
+        content: '',
+        language: language
+      })
+      
+      // Refresh file list to show the new file
+      sendFilesMessage({
+        type: 'file_list',
+        directory: '/'
+      })
+    } else {
+      // Handle folder creation
+      sendFilesMessage({
+        type: 'folder_create',
+        foldername: name,
+        parent_path: basePath
+      })
+      
+      // Refresh file list to show the new folder
+      sendFilesMessage({
+        type: 'file_list',
+        directory: '/'
       })
     }
-
-    setFiles(updateFiles)
   }
 
   const handleFileDelete = (fileId: string) => {
-    const removeFile = (files: FileNode[]): FileNode[] => {
-      return files.filter(file => {
-        if (file.id === fileId) {
-          return false
-        }
+    // Find the file to get its path
+    const findFileById = (files: FileNode[], id: string): FileNode | null => {
+      for (const file of files) {
+        if (file.id === id) return file
         if (file.children) {
-          file.children = removeFile(file.children)
-        }
-        return true
-      })
-    }
-
-    setFiles(removeFile)
-
-    // Close tab if file is deleted
-    const deletedFile = files.find(f => f.id === fileId)
-    if (deletedFile) {
-      setOpenTabs(prev => prev.filter(tab => tab.id !== fileId))
-      
-      // Select another file if the deleted one was selected
-      if (selectedFile?.id === fileId) {
-        const remainingFiles = removeFile([...files])
-        if (remainingFiles.length > 0) {
-          handleFileSelect(remainingFiles[0])
-        } else {
-          setSelectedFile(null)
-          setFileContent('')
+          const found = findFileById(file.children, id)
+          if (found) return found
         }
       }
+      return null
+    }
+
+    const fileToDelete = findFileById(files, fileId)
+    if (fileToDelete) {
+      // Send delete request to backend
+      sendFilesMessage({
+        type: 'file_delete',
+        filename: fileToDelete.path
+      })
+      
+      // Note: UI updates (tab closure, selection clearing, file tree updates) 
+      // are now handled by the file_deleted broadcast message
     }
   }
 
   const handleFileRename = (fileId: string, newName: string) => {
-    const renameFile = (files: FileNode[]): FileNode[] => {
-      return files.map(file => {
-        if (file.id === fileId) {
-          return { ...file, name: newName }
-        }
+    // Find the file to get its current path
+    const findFileById = (files: FileNode[], id: string): FileNode | null => {
+      for (const file of files) {
+        if (file.id === id) return file
         if (file.children) {
-          file.children = renameFile(file.children)
+          const found = findFileById(file.children, id)
+          if (found) return found
         }
-        return file
-      })
+      }
+      return null
     }
 
-    setFiles(renameFile)
+    const fileToRename = findFileById(files, fileId)
+    if (fileToRename) {
+      // Create new path with the new name
+      const pathParts = fileToRename.path.split('/')
+      pathParts[pathParts.length - 1] = newName
+      const newPath = pathParts.join('/')
 
-    // Update tab name
-    setOpenTabs(prev => prev.map(tab => 
-      tab.id === fileId ? { ...tab, name: newName } : tab
-    ))
+      // Send rename request to backend
+      sendFilesMessage({
+        type: 'file_rename',
+        old_filename: fileToRename.path,
+        new_filename: newPath
+      })
+      
+      // Refresh file list to show updated state
+      sendFilesMessage({
+        type: 'file_list',
+        directory: '/'
+      })
 
-    // Update selected file
-    if (selectedFile?.id === fileId) {
-      setSelectedFile(prev => prev ? { ...prev, name: newName } : null)
+      // Update tab name
+      setOpenTabs(prev => prev.map(tab => 
+        tab.id === fileId ? { ...tab, name: newName } : tab
+      ))
+
+      // Update selected file
+      if (selectedFile?.id === fileId) {
+        setSelectedFile(prev => prev ? { ...prev, name: newName } : null)
+      }
     }
   }
 
   const handleFileMove = (fileId: string, newParentPath: string) => {
-    // TODO: Implement file move functionality
-    console.log('Moving file', fileId, 'to', newParentPath)
+    // Find the source file to get its current path and name
+    const findFileById = (files: FileNode[], id: string): FileNode | null => {
+      for (const file of files) {
+        if (file.id === id) return file
+        if (file.children) {
+          const found = findFileById(file.children, id)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const sourceFile = findFileById(files, fileId)
+    if (!sourceFile) {
+      console.error('Source file not found for move operation')
+      return
+    }
+
+    // Don't allow moving a folder into itself
+    if (sourceFile.type === 'folder' && newParentPath.startsWith(sourceFile.path)) {
+      console.error('Cannot move a folder into itself or its subdirectory')
+      return
+    }
+
+    // Create the new file path
+    const fileName = sourceFile.name
+    const newFilePath = newParentPath === '/' ? `/${fileName}` : `${newParentPath}/${fileName}`
+    
+    // Don't move if it's already in the same location
+    if (sourceFile.path === newFilePath) {
+      return
+    }
+
+    console.log(`Moving file from ${sourceFile.path} to ${newFilePath}`)
+
+    // Send rename request to backend (rename can be used for moving)
+    sendFilesMessage({
+      type: 'file_rename',
+      old_filename: sourceFile.path,
+      new_filename: newFilePath
+    })
   }
 
   const handleFileSave = () => {
@@ -467,15 +769,9 @@ Happy coding!
       tab.id === selectedFile.id ? { ...tab, isDirty: false } : tab
     ))
 
-    // Send file update to backend
-    if (selectedFile) {
-      sendFilesMessage({
-        type: 'file_update',
-        filename: selectedFile.name,
-        content: fileContent,
-        language: selectedFile.language
-      })
-    }
+    // Note: File saving to backend is already handled by Monaco Editor
+    // Monaco Editor gets the content directly from the editor and sends file_update
+    // This function only updates the UI state
   }
 
   const handleTabSelect = (tabId: string) => {
@@ -485,8 +781,17 @@ Happy coding!
     const file = files.find(f => f.id === tabId)
     if (file) {
       setSelectedFile(file)
-      setFileContent(file.content || '')
       setIsDirty(false)
+      
+      // Always request fresh content from backend instead of using cached content
+      if (file.type === 'file') {
+        sendFilesMessage({
+          type: 'file_request',
+          filename: file.path
+        })
+      } else {
+        setFileContent('')
+      }
     }
 
     setActiveTabId(tabId)
@@ -525,7 +830,8 @@ Happy coding!
     })
   }
 
-  const handleEditorChange = (value: string) => {
+  const handleEditorChange = (value: string | undefined) => {
+    if (value === undefined) return; // Handle case where value is undefined (e.g., initial load)
     setFileContent(value)
     setIsDirty(true)
 
@@ -577,9 +883,45 @@ Happy coding!
 
   const handleSettingsChange = (newSettings: EditorSettingsConfig) => {
     setEditorSettings(newSettings)
-    // Update local settings based on editor settings
-    setShowMinimap(newSettings.minimap)
     setWordWrap(newSettings.wordWrap === 'on')
+  }
+
+  // Submission handlers
+  const handleSubmitForReview = () => {
+    if (selectedFile) {
+      setShowSubmissionForm(true)
+    } else {
+      toast.error('Please select a file to submit for review')
+    }
+  }
+
+  const handleSubmissionSuccess = () => {
+    setShowSubmissionForm(false)
+    toast.success('Code submitted for review successfully!')
+  }
+
+  const handleSubmissionCancel = () => {
+    setShowSubmissionForm(false)
+  }
+
+  const getLanguageFromFileName = (fileName: string) => {
+    const extension = fileName.split('.').pop() || 'txt'
+    const languageMap: { [key: string]: string } = {
+      py: 'python',
+      js: 'javascript', 
+      ts: 'typescript',
+      jsx: 'javascript',
+      tsx: 'typescript',
+      html: 'html',
+      css: 'css',
+      json: 'json',
+      md: 'markdown',
+      txt: 'text',
+      sql: 'sql',
+      yaml: 'yaml',
+      yml: 'yaml'
+    }
+    return languageMap[extension] || 'text'
   }
 
   return (
@@ -602,6 +944,7 @@ Happy coding!
         onToggleMinimap={handleToggleMinimap}
         onToggleWordWrap={handleToggleWordWrap}
         onOpenSettings={handleOpenSettings}
+        onSubmitForReview={handleSubmitForReview}
         isDirty={isDirty}
         showMinimap={showMinimap}
         wordWrap={wordWrap}
@@ -609,6 +952,7 @@ Happy coding!
         replaceQuery={replaceQuery}
         onFindQueryChange={setFindQuery}
         onReplaceQueryChange={setReplaceQuery}
+        canSubmit={!!selectedFile}
       />
 
       {/* Main Content */}
@@ -624,6 +968,7 @@ Happy coding!
               onFileDelete={handleFileDelete}
               onFileRename={handleFileRename}
               onFileMove={handleFileMove}
+              onFolderExpansion={handleFolderExpansion}
             />
           </div>
         )}
@@ -632,17 +977,21 @@ Happy coding!
         <div className="flex-1 flex flex-col min-h-0">
           {/* Editor */}
           <div style={{ height: `${editorHeight}%` }} className="relative flex-shrink-0">
-            {selectedFile ? (
-              <MonacoEditor
-                value={fileContent}
-                onChange={handleEditorChange}
-                language={selectedFile.language || 'python'}
-                filename={selectedFile.name}
-                onSave={handleFileSave}
-                autoSave={editorSettings.autoSave}
-                autoSaveDelay={editorSettings.autoSaveDelay}
-              />
-            ) : (
+            {selectedFile ? (() => {
+              return (
+                <MonacoEditor
+                  key={selectedFile.path}
+                  value={fileContent}
+                  onChange={handleEditorChange}
+                  language={getLanguageFromFileName(selectedFile.name || '')}
+                  filename={selectedFile.path}
+                  onSave={handleFileSave}
+                  autoSave={true}
+                  autoSaveDelay={2000}
+                  height="100%"
+                />
+              )
+            })() : (
               <div className="h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900">
                 <div className="text-center">
                   <div className="text-6xl mb-4">📝</div>
@@ -667,7 +1016,7 @@ Happy coding!
 
           {/* Terminal */}
           <div style={{ height: `${100 - editorHeight}%` }} className="flex-1 min-h-0 flex flex-col terminal-container">
-            <Terminal 
+            <XTerminal 
               onCommand={handleTerminalCommand} 
               isConnected={terminalConnected} 
             />
@@ -682,6 +1031,16 @@ Happy coding!
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+
+      {/* Submission Form Modal */}
+      {showSubmissionForm && selectedFile && (
+        <SubmissionForm
+          filePath={selectedFile.path}
+          fileName={selectedFile.name || ''}
+          onSuccess={handleSubmissionSuccess}
+          onCancel={handleSubmissionCancel}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # Backend service for testing
+  backend:
+    build:
+      context: ../..
+      dockerfile: integration-tests/docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./test.db
+      - DEBUG=true
+      - CORS_ORIGINS=["http://localhost:3004"]
+    volumes:
+      - ../../backend:/app/backend
+      - test_data:/app/data
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend service for testing
+  frontend:
+    build:
+      context: ../..
+      dockerfile: integration-tests/docker/Dockerfile
+    ports:
+      - "3004:3004"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+    volumes:
+      - ../../frontend:/app/frontend
+    command: ["npm", "run", "dev"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Integration tests service
+  integration-tests:
+    build:
+      context: ../..
+      dockerfile: integration-tests/docker/Dockerfile
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - FRONTEND_URL=http://frontend:3004
+      - TEST_USER=testuser
+      - TEST_PASSWORD=testpassword123
+      - TEST_TIMEOUT=60
+    volumes:
+      - ../../integration-tests:/app/integration-tests
+      - test_reports:/app/reports
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    command: ["bash", "integration-tests/run-all-tests.sh"]
+
+  # Database service (if using external database)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     - POSTGRES_DB=afteride_test
+  #     - POSTGRES_USER=testuser
+  #     - POSTGRES_PASSWORD=testpass
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  test_data:
+  test_reports:
+  # postgres_data: 

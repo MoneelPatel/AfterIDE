@@ -5,13 +5,12 @@ File management for code files within development sessions.
 """
 
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 import hashlib
 
-from app.core.database import Base
+from app.core.database import Base, get_uuid_column, get_uuid_default
 
 
 class File(Base):
@@ -20,10 +19,10 @@ class File(Base):
     __tablename__ = "files"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(get_uuid_column(), primary_key=True, default=get_uuid_default())
     
     # Foreign keys
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False, index=True)
+    session_id = Column(get_uuid_column(), ForeignKey("sessions.id"), nullable=False, index=True)
     
     # File information
     filename = Column(String(255), nullable=False)

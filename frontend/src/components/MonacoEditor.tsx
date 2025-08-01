@@ -49,6 +49,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     autoSaveTimer: null
   });
 
+  // Initialize editor when value or container changes
   // Configure Monaco Editor before mount
   const handleBeforeMount: BeforeMount = (monaco) => {
     monacoRef.current = monaco;
@@ -432,17 +433,24 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   // Handle save
   const handleSave = useCallback(() => {
+    console.log('🔧 handleSave called', { filename, filesConnected, language });
+    
     if (editorRef.current && filename) {
       const content = editorRef.current.getValue();
+      console.log('🔧 Editor content length:', content.length);
       
       // Send file update via WebSocket
       if (filesConnected) {
-        sendFilesMessage({
+        const message = {
           type: 'file_update',
           filename: filename,
           content: content,
           language: language
-        });
+        };
+        console.log('🔧 Sending file update message:', message);
+        sendFilesMessage(message);
+      } else {
+        console.error('🔧 Files WebSocket not connected!');
       }
       
       // Call onSave callback
@@ -455,23 +463,38 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         isDirty: false,
         lastSaved: content
       }));
+      
+      console.log('🔧 Save completed');
+    } else {
+      console.error('🔧 Cannot save: editor not ready or no filename', { 
+        hasEditor: !!editorRef.current, 
+        filename 
+      });
     }
   }, [filename, filesConnected, sendFilesMessage, onSave, language]);
 
   // Handle auto-save
   const handleAutoSave = useCallback(() => {
+    console.log('🔧 handleAutoSave called', { autoSave, filename, filesConnected });
+    
     if (autoSave && editorRef.current && filename) {
       const content = editorRef.current.getValue();
       
       // Only auto-save if content has changed
       if (content !== editorState.lastSaved) {
+        console.log('🔧 Auto-saving file, content changed');
+        
         if (filesConnected) {
-          sendFilesMessage({
+          const message = {
             type: 'file_update',
             filename: filename,
             content: content,
             language: language
-          });
+          };
+          console.log('🔧 Sending auto-save message:', message);
+          sendFilesMessage(message);
+        } else {
+          console.error('🔧 Files WebSocket not connected for auto-save!');
         }
         
         setEditorState(prev => ({
@@ -479,7 +502,18 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           isDirty: false,
           lastSaved: content
         }));
+        
+        console.log('🔧 Auto-save completed');
+      } else {
+        console.log('🔧 Auto-save skipped - content unchanged');
       }
+    } else {
+      console.log('🔧 Auto-save conditions not met', { 
+        autoSave, 
+        hasEditor: !!editorRef.current, 
+        filename,
+        filesConnected 
+      });
     }
   }, [autoSave, filename, filesConnected, sendFilesMessage, language, editorState.lastSaved]);
 
@@ -521,18 +555,11 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           fontSize: 14,
           fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
           lineNumbers: 'on',
-          roundedSelection: false,
-          scrollbar: {
-            vertical: 'visible',
-            horizontal: 'visible',
-            verticalScrollbarSize: 14,
-            horizontalScrollbarSize: 14
-          },
-          folding: true,
-          foldingStrategy: 'indentation',
-          showFoldingControls: 'always',
-          foldingHighlight: true,
-          foldingImportsByDefault: true,
+          lineNumbersMinChars: 3,
+          lineDecorationsWidth: 10,
+          glyphMargin: false,
+          folding: false,
+          showFoldingControls: 'never',
           wordWrap: 'on',
           automaticLayout: true,
           suggestOnTriggerCharacters: true,
@@ -552,7 +579,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           renderControlCharacters: false,
           renderLineHighlight: 'all',
           selectOnLineNumbers: true,
-          glyphMargin: true,
           useTabStops: false,
           tabSize: 4,
           insertSpaces: true,
@@ -560,6 +586,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           trimAutoWhitespace: true,
           largeFileOptimizations: true,
           wordBasedSuggestions: true,
+          scrollbar: {
+            vertical: 'visible',
+            horizontal: 'visible',
+            verticalScrollbarSize: 14,
+            horizontalScrollbarSize: 14
+          },
           suggest: {
             insertMode: 'replace',
             showKeywords: true,

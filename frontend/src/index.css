@@ -30,55 +30,20 @@
     min-height: 300px;
   }
   
-  /* Ensure folding controls are visible */
+  /* Fix line numbers - let Monaco handle the layout */
   .monaco-editor .margin-view-overlays .cgmr {
     position: absolute;
     width: 100%;
     height: 100%;
   }
   
-  .monaco-editor .margin-view-overlays .cgmr .folding {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  
-  .monaco-editor .margin-view-overlays .cgmr .folding:hover {
-    background-color: rgba(100, 100, 100, 0.1);
-  }
-  
-  /* Fix folding icons alignment and visibility */
-  .monaco-editor .cldr {
-    position: relative !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 20px !important;
-    height: 20px !important;
-    cursor: pointer !important;
-  }
-  
-  .monaco-editor .cldr.codicon {
-    font-size: 14px !important;
-    line-height: 1 !important;
-  }
-  
-  .monaco-editor .cldr.codicon-folding-expanded,
-  .monaco-editor .cldr.codicon-folding-collapsed {
-    color: var(--vscode-editorLineNumber-foreground) !important;
-  }
-  
-  .monaco-editor .cldr:hover {
-    background-color: rgba(100, 100, 100, 0.1) !important;
-  }
-  
-  /* Ensure the folding gutter is properly sized */
-  .monaco-editor .margin-view-overlays .cgmr {
-    width: 20px !important;
+  /* Ensure line numbers are visible and properly aligned */
+  .monaco-editor .margin-view-overlays .cgmr .line-numbers .line-number {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--vscode-editorLineNumber-foreground);
+    font-variant-numeric: tabular-nums;
   }
   
   /* xterm.js customizations */

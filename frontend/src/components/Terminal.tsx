@@ -21,6 +21,7 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
   const [currentInput, setCurrentInput] = useState('')
   const [terminalOutput, setTerminalOutput] = useState<TerminalLine[]>([])
   const [isInitialized, setIsInitialized] = useState(false)
+  const [workingDirectory, setWorkingDirectory] = useState('/')
   const initializedRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const outputRef = useRef<HTMLDivElement>(null)
@@ -57,6 +58,12 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
       if (message.type === 'command_response') {
         setIsProcessing(false)
         
+        // Update working directory if provided (for cd commands)
+        if (message.working_directory) {
+          console.log('Terminal: Updating working directory to:', message.working_directory)
+          setWorkingDirectory(message.working_directory)
+        }
+        
         // Display stdout
         if (message.stdout) {
           addOutput(message.stdout, 'output')
@@ -90,7 +97,7 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
       offTerminalMessage('command_response', handleCommandResponse)
       offTerminalMessage('error', handleError)
     }
-  }, [onTerminalMessage, offTerminalMessage, addOutput, focusInput])
+  }, [onTerminalMessage, offTerminalMessage, addOutput, focusInput, setWorkingDirectory])
 
   // Handle connection status changes
   useEffect(() => {
@@ -103,10 +110,10 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
     console.log('Executing command:', command)
     if (!command.trim()) return
 
-    // Add to history
+    // Add to history and update index
     const newHistory = [...commandHistory, command.trim()]
     setCommandHistory(newHistory.slice(-100)) // Keep last 100 commands
-    setHistoryIndex(newHistory.length)
+    setHistoryIndex(newHistory.length) // Set to end of history
 
     // Show command echo
     addOutput(`  $ ${command}`, 'command')
@@ -117,14 +124,15 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
       setIsProcessing(true)
       sendTerminalMessage({
         type: 'command',
-        command: command.trim()
+        command: command.trim(),
+        working_directory: workingDirectory
       })
     } else {
       console.log('Backend not connected, using local command handling')
       // Fallback to local command handling
       handleLocalCommand(command.trim())
     }
-  }, [commandHistory, terminalConnected, sendTerminalMessage, addOutput])
+  }, [commandHistory, terminalConnected, sendTerminalMessage, addOutput, workingDirectory])
 
   // Local command handling for when backend is not available
   const handleLocalCommand = (command: string) => {
@@ -146,33 +154,58 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
       addOutput('  Type "help" for available commands.', 'output')
       addOutput('', 'output')
     } else if (cmd === 'ls') {
-      addOutput('  Files in current directory:', 'output')
-      addOutput('    main.py', 'output')
-      addOutput('    requirements.txt', 'output')
-      addOutput('    README.md', 'output')
-      addOutput('    src/', 'output')
-      addOutput('', 'output')
+      // Show files based on current working directory
+      if (workingDirectory === '/workspace' || workingDirectory === '/') {
+        addOutput('  Files in current directory:', 'output')
+        addOutput('    main.py', 'output')
+        addOutput('    requirements.txt', 'output')
+        addOutput('    README.md', 'output')
+        addOutput('    src/', 'output')
+        addOutput('    backend/', 'output')
+        addOutput('    frontend/', 'output')
+        addOutput('    workspace/', 'output')
+        addOutput('', 'output')
+      } else if (workingDirectory === '/workspace/backend' || workingDirectory === '/backend') {
+        addOutput('  Files in current directory:', 'output')
+        addOutput('    .env', 'output')
+        addOutput('    alembic/', 'output')
+        addOutput('    alembic.ini', 'output')
+        addOutput('    app/', 'output')
+        addOutput('    backend.log', 'output')
+        addOutput('    requirements.txt', 'output')
+        addOutput('    venv/', 'output')
+        addOutput('    workspace/', 'output')
+        addOutput('', 'output')
+      } else {
+        addOutput('  Files in current directory:', 'output')
+        addOutput('    (Directory contents not available in local mode)', 'output')
+        addOutput('', 'output')
+      }
     } else if (cmd === 'pwd') {
-      addOutput('  Current directory: /workspace', 'output')
-      addOutput('', 'output')
-    } else if (cmd.startsWith('python ') || cmd.startsWith('python3 ')) {
-      addOutput('  Running Python code...', 'output')
-      addOutput('  (Backend connection required for Python execution)', 'output')
-      addOutput('', 'output')
-    } else if (cmd.startsWith('cat ')) {
-      addOutput('  Displaying file contents...', 'output')
-      addOutput('  (Backend connection required for file operations)', 'output')
+      addOutput(`  Current directory: ${workingDirectory}`, 'output')
       addOutput('', 'output')
     } else if (cmd.startsWith('cd ')) {
-      addOutput('  Changing directory...', 'output')
-      addOutput('  (Backend connection required for directory navigation)', 'output')
-      addOutput('', 'output')
+      const targetDir = command.substring(3).trim()
+      if (targetDir === '..') {
+        if (workingDirectory === '/workspace/backend' || workingDirectory === '/backend') {
+          setWorkingDirectory('/workspace')
+        } else if (workingDirectory === '/workspace') {
+          setWorkingDirectory('/workspace')
+        }
+        addOutput('  Changed directory', 'output')
+      } else if (targetDir === 'backend') {
+        setWorkingDirectory('/workspace/backend')
+        addOutput('  Changed directory', 'output')
+      } else if (targetDir === '/') {
+        setWorkingDirectory('/workspace')
+        addOutput('  Changed directory', 'output')
+      } else {
+        addOutput('  Directory not found', 'error')
+      }
     } else {
       addOutput(`  Command not found: ${command}`, 'error')
-      addOutput('  Type "help" for available commands.', 'output')
-      addOutput('', 'output')
     }
-
+    
     // Always show prompt after command execution
     addOutput('  $ ', 'prompt')
     focusInput()
@@ -184,7 +217,6 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
     if (currentInput.trim()) {
       executeCommand(currentInput.trim())
       setCurrentInput('')
-      setHistoryIndex(commandHistory.length)
     }
   }
 
@@ -192,24 +224,19 @@ const Terminal: React.FC<TerminalProps> = ({ onCommand, output, isConnected = tr
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowUp') {
       e.preventDefault()
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1
-        setHistoryIndex(newIndex)
-        if (commandHistory[newIndex]) {
-          setCurrentInput(commandHistory[newIndex])
-        }
+      const newIndex = Math.max(0, historyIndex - 1)
+      setHistoryIndex(newIndex)
+      if (commandHistory[newIndex]) {
+        setCurrentInput(commandHistory[newIndex])
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      if (historyIndex < commandHistory.length - 1) {
-        const newIndex = historyIndex + 1
-        setHistoryIndex(newIndex)
-        if (commandHistory[newIndex]) {
-          setCurrentInput(commandHistory[newIndex])
-        }
-      } else if (historyIndex === commandHistory.length - 1) {
-        setHistoryIndex(commandHistory.length)
+      const newIndex = Math.min(commandHistory.length, historyIndex + 1)
+      setHistoryIndex(newIndex)
+      if (newIndex === commandHistory.length) {
         setCurrentInput('')
+      } else if (commandHistory[newIndex]) {
+        setCurrentInput(commandHistory[newIndex])
       }
     }
   }

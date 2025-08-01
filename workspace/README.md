@@ -1,32 +1,26 @@
-# AfterIDE Workspace
+# My Project
 
-This is your AfterIDE development workspace. You can use the terminal below to:
+This is my main project workspace.
 
-## Available Commands
+## Files
 
-- `ls` - List files and directories
-- `cat filename` - Display file contents
-- `pwd` - Show current directory
-- `cd directory` - Change directory
-- `python filename.py` - Run Python scripts
-- `python "print('Hello World')"` - Execute Python code directly
-- `clear` - Clear terminal screen
-- `help` - Show available commands
-
-## Test Files
-
-- `hello.py` - Simple Python test script
-- `test_terminal.py` - Comprehensive terminal test script
+- `main.py` - Main application entry point
+- `requirements.txt` - Python dependencies
+- `src/` - Source code directory
+- `README.md` - This file
 
 ## Getting Started
 
-1. Try running: `python hello.py`
-2. List files: `ls`
-3. View file contents: `cat hello.py`
-4. Execute Python code: `python "print('Hello from terminal!')"`
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Security
+2. Run the application:
+   ```bash
+   python main.py
+   ```
 
-The terminal is sandboxed to the workspace directory for security. You cannot navigate outside this directory or execute dangerous commands.
+## Development
 
-Happy coding! 🚀 
+This workspace is connected to AfterIDE for development. 

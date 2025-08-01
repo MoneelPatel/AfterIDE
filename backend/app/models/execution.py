@@ -5,13 +5,12 @@ Execution tracking for code commands and their results.
 """
 
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, Boolean, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 import enum
 
-from app.core.database import Base
+from app.core.database import Base, get_uuid_column, get_uuid_default, get_json_column
 
 
 class ExecutionStatus(str, enum.Enum):
@@ -30,10 +29,10 @@ class Execution(Base):
     __tablename__ = "executions"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(get_uuid_column(), primary_key=True, default=get_uuid_default())
     
     # Foreign keys
-    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False, index=True)
+    session_id = Column(get_uuid_column(), ForeignKey("sessions.id"), nullable=False, index=True)
     
     # Execution information
     command = Column(Text, nullable=False)
@@ -50,7 +49,7 @@ class Execution(Base):
     cpu_usage_percent = Column(Integer, nullable=True)  # Peak CPU usage percentage
     
     # Security and monitoring
-    security_events = Column(JSONB, default=list, nullable=False)  # Security violations, warnings
+    security_events = Column(get_json_column(), default=list, nullable=False)  # Security violations, warnings
     resource_limits_exceeded = Column(Boolean, default=False, nullable=False)
     
     # Container information

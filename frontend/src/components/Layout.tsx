@@ -1,6 +1,7 @@
 import React from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useTheme } from '../contexts/ThemeContext'
+import { useNavigate, useLocation } from 'react-router-dom'
 import ConnectionStatus from './ConnectionStatus'
 
 interface LayoutProps {
@@ -10,6 +11,8 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { logout, user } = useAuthStore()
   const { theme, toggleTheme } = useTheme()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const handleLogout = () => {
     localStorage.removeItem('authToken')
@@ -18,7 +21,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="h-full bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex flex-col">
-      {/* Minimal top bar for editor page */}
+      {/* Top bar with navigation */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center space-x-4">
           <h1 className="text-gray-900 dark:text-white font-semibold">AfterIDE</h1>
@@ -27,7 +30,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </span>
           <ConnectionStatus />
         </div>
+        
+        {/* Navigation buttons */}
         <div className="flex items-center space-x-3">
+          <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => navigate('/')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                location.pathname === '/' 
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Editor
+            </button>
+            <button
+              onClick={() => navigate('/review')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                location.pathname === '/review' 
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              Review
+            </button>
+          </div>
+          
           <button
             onClick={toggleTheme}
             className="p-2 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"

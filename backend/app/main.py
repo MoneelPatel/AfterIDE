@@ -8,11 +8,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import structlog
+import os
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.core.database import init_db
 from app.api.v1.api import api_router
-from app.websocket.router import websocket_router
+from app.websocket.router import websocket_router, websocket_manager
+from app.services.workspace import WorkspaceService
 
 # Setup structured logging
 setup_logging()
@@ -39,7 +42,7 @@ def create_application() -> FastAPI:
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=["*"],  # Allow all origins for development
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -62,10 +65,38 @@ def create_application() -> FastAPI:
         """Application startup event handler."""
         logger.info("Starting AfterIDE application", version=settings.VERSION)
         
+        # Initialize database
+        try:
+            await init_db()
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error("Failed to initialize database", error=str(e))
+            raise
+        
+        # Initialize workspace service for WebSocket manager
+        try:
+            from app.core.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                workspace_service = WorkspaceService(session)
+                websocket_manager.set_workspace_service(workspace_service)
+                
+                # Set WebSocket manager for terminal service to enable file system notifications
+                from app.services.terminal import terminal_service
+                terminal_service.set_websocket_manager(websocket_manager)
+                
+                logger.info("Workspace service initialized for WebSocket manager")
+                logger.info("WebSocket manager set for terminal service")
+        except Exception as e:
+            logger.error("Failed to initialize workspace service", error=str(e))
+            # Don't raise here as the app can still function without workspace service
+        
     @app.on_event("shutdown")
     async def shutdown_event():
         """Application shutdown event handler."""
         logger.info("Shutting down AfterIDE application")
+        
+        # Clean up any temporary workspaces
+        # This would be handled by the workspace service cleanup methods
     
     @app.get("/health")
     async def health_check():
@@ -73,7 +104,9 @@ def create_application() -> FastAPI:
         return {
             "status": "healthy",
             "version": settings.VERSION,
-            "environment": settings.ENVIRONMENT
+            "environment": settings.ENVIRONMENT,
+            "database_url": settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "local",
+            "redis_url": settings.REDIS_URL.split("@")[-1] if "@" in settings.REDIS_URL else "local"
         }
     
     return app
@@ -83,10 +116,12 @@ app = create_application()
 
 if __name__ == "__main__":
     import uvicorn
+    # Use Railway's PORT environment variable or default to 8000
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=settings.DEBUG,
         log_level="info"
     ) 

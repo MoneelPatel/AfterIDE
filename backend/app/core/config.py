@@ -25,16 +25,16 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     
     # CORS and allowed hosts
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3002", "http://127.0.0.1:3002", "http://localhost:3003", "http://127.0.0.1:3003"]
+    CORS_ORIGINS: List[str] = ["*"]  # Allow all origins for development
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "*"]
     
-    # Database
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/afteride"
+    # Database - Railway PostgreSQL
+    DATABASE_URL: str = "sqlite:///./afteride.db"
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 30
     DATABASE_POOL_RECYCLE: int = 3600
     
-    # Redis
+    # Redis - Railway Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_POOL_SIZE: int = 10
     
@@ -80,6 +80,24 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
     
+    @validator("DATABASE_URL", pre=True)
+    def assemble_database_url(cls, v):
+        """Use Railway PostgreSQL URL if available."""
+        # Check for Railway PostgreSQL URL
+        railway_postgres_url = os.getenv("DATABASE_URL")
+        if railway_postgres_url and railway_postgres_url.startswith("postgres://"):
+            return railway_postgres_url
+        return v
+    
+    @validator("REDIS_URL", pre=True)
+    def assemble_redis_url(cls, v):
+        """Use Railway Redis URL if available."""
+        # Check for Railway Redis URL
+        railway_redis_url = os.getenv("REDIS_URL")
+        if railway_redis_url:
+            return railway_redis_url
+        return v
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -92,5 +110,6 @@ settings = Settings()
 if settings.ENVIRONMENT == "production":
     settings.DEBUG = False
     settings.LOG_LEVEL = "WARNING"
-    settings.CORS_ORIGINS = ["https://yourdomain.com"]
-    settings.ALLOWED_HOSTS = ["yourdomain.com"] 
+    # Allow Railway domains
+    settings.CORS_ORIGINS = ["*"]  # Allow all for now, can be restricted later
+    settings.ALLOWED_HOSTS = ["*"]  # Allow all for Railway deployment 

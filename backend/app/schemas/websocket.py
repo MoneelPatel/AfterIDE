@@ -35,6 +35,8 @@ class MessageType(str, Enum):
     FILE_RENAMED = "file_renamed"
     FILE_LIST = "file_list"
     FILE_LIST_RESPONSE = "file_list_response"
+    FOLDER_CREATE = "folder_create"
+    FOLDER_CREATED = "folder_created"
     
     # Notification messages
     NOTIFICATION = "notification"
@@ -93,6 +95,7 @@ class CommandResponseMessage(BaseMessage):
     stderr: str
     return_code: int
     execution_time: Optional[float] = None
+    working_directory: Optional[str] = None
 
 
 class TerminalOutputMessage(BaseMessage):
@@ -138,14 +141,31 @@ class FileContentMessage(BaseMessage):
 
 
 class FileDeleteMessage(BaseMessage):
-    """File delete message."""
-    filename: str
+    """Message for file deletion."""
+    type: MessageType = MessageType.FILE_DELETE
+    filename: str = Field(..., description="File path to delete")
+
+
+class FolderCreateMessage(BaseMessage):
+    """Message for folder creation."""
+    type: MessageType = MessageType.FOLDER_CREATE
+    foldername: str = Field(..., description="Folder name to create")
+    parent_path: Optional[str] = Field(default="/", description="Parent directory path")
+
+
+class FolderCreatedMessage(BaseMessage):
+    """Message sent when folder is created."""
+    type: MessageType = MessageType.FOLDER_CREATED
+    foldername: str = Field(..., description="Created folder name")
+    folderpath: str = Field(..., description="Full folder path")
+    parent_path: Optional[str] = Field(default="/", description="Parent directory path")
 
 
 class FileDeletedMessage(BaseMessage):
     """File deleted notification message."""
-    filename: str
-    deleted_by: str
+    type: MessageType = MessageType.FILE_DELETED
+    filename: str = Field(..., description="Deleted file path")
+    deleted_by: str = Field(..., description="ID of connection that deleted the file")
 
 
 class FileRenameMessage(BaseMessage):
@@ -221,6 +241,8 @@ def validate_message(data: Dict[str, Any]) -> BaseMessage:
         MessageType.FILE_RENAMED: FileRenamedMessage,
         MessageType.FILE_LIST: FileListMessage,
         MessageType.FILE_LIST_RESPONSE: FileListResponseMessage,
+        MessageType.FOLDER_CREATE: FolderCreateMessage,
+        MessageType.FOLDER_CREATED: FolderCreatedMessage,
         MessageType.NOTIFICATION: NotificationMessage,
         MessageType.SYSTEM_MESSAGE: SystemMessage,
     }

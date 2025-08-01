@@ -4,14 +4,13 @@ AfterIDE - Session Model
 Session management for user development environments.
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 import enum
 
-from app.core.database import Base
+from app.core.database import Base, get_uuid_column, get_uuid_default, get_json_column
 
 
 class SessionStatus(str, enum.Enum):
@@ -27,18 +26,18 @@ class Session(Base):
     __tablename__ = "sessions"
     
     # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(get_uuid_column(), primary_key=True, default=get_uuid_default())
     
     # Foreign keys
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(get_uuid_column(), ForeignKey("users.id"), nullable=False, index=True)
     
     # Session information
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    status = Column(Enum(SessionStatus), default=SessionStatus.ACTIVE, nullable=False)
+    status = Column(String(20), default=SessionStatus.ACTIVE.value, nullable=False)
     
     # Configuration and environment
-    config = Column(JSONB, default=dict, nullable=False)  # Python packages, environment vars, etc.
+    config = Column(get_json_column(), default=dict, nullable=False)  # Python packages, environment vars, etc.
     container_id = Column(String(100), nullable=True)  # Docker container identifier
     
     # Resource limits and usage
@@ -63,7 +62,7 @@ class Session(Base):
     @property
     def is_active(self) -> bool:
         """Check if session is currently active."""
-        return self.status == SessionStatus.ACTIVE
+        return self.status == SessionStatus.ACTIVE.value
     
     @property
     def is_expired(self) -> bool:
