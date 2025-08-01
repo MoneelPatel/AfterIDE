@@ -31,20 +31,40 @@ def main():
     print(f"🐍 Python version: {sys.version}")
     print(f"📁 Working directory: {os.getcwd()}")
     
+    # List files in current directory
+    print("📁 Files in current directory:")
+    for file in os.listdir("."):
+        print(f"  - {file}")
+    
     # Upgrade pip
     if not run_command("pip install --upgrade pip", "Upgrading pip"):
         return False
     
-    # Install requirements
-    if not run_command("pip install -r requirements.txt", "Installing requirements"):
+    # Install requirements - try railway requirements first, fallback to regular
+    requirements_file = "requirements-railway.txt"
+    if not os.path.exists(requirements_file):
+        requirements_file = "requirements.txt"
+        print(f"⚠️  {requirements_file} not found, using requirements.txt")
+    
+    if not run_command(f"pip install -r {requirements_file}", f"Installing requirements from {requirements_file}"):
         return False
+    
+    # Try to install pydantic-settings specifically if it fails
+    print("🔍 Checking pydantic-settings installation...")
+    try:
+        import pydantic_settings
+        print("✅ pydantic-settings is available")
+    except ImportError:
+        print("⚠️  pydantic-settings not found, trying to install it...")
+        if not run_command("pip install pydantic-settings==2.1.0", "Installing pydantic-settings"):
+            print("❌ Failed to install pydantic-settings")
+            return False
     
     # Verify key packages are installed
     key_packages = [
         "fastapi",
         "uvicorn", 
         "pydantic",
-        "pydantic-settings",
         "sqlalchemy",
         "redis"
     ]
@@ -69,6 +89,7 @@ def main():
         return True
     except Exception as e:
         print(f"❌ App import failed: {e}")
+        print(f"📄 Full error: {e}")
         return False
 
 if __name__ == "__main__":
