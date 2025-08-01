@@ -186,6 +186,26 @@ After deployment, you may need to run database migrations:
    - Verify WebSocket proxy configuration in nginx
    - Check if backend WebSocket endpoint is working
 
+5. **Health Check Failures**
+   - **Issue**: Health checker failing at build
+   - **Solution 1**: Use the simple Dockerfile
+     ```bash
+     # Rename the simple Dockerfile
+     mv backend/Dockerfile backend/Dockerfile.with-healthcheck
+     mv backend/Dockerfile.simple backend/Dockerfile
+     ```
+   - **Solution 2**: Disable health checks temporarily
+     - Remove `healthcheckPath` from `railway.json`
+     - Remove `healthcheckPath` from `railway.toml`
+   - **Solution 3**: Increase health check timeout
+     - Set `healthcheckTimeout` to 600 seconds
+     - Increase `start-period` in Dockerfile health check
+
+6. **Port Issues**
+   - Ensure your application uses `$PORT` environment variable
+   - Check that the port is properly exposed in Dockerfile
+   - Verify Railway's port assignment
+
 ### Logs and Monitoring
 
 - **View Logs**: Use Railway dashboard to view service logs

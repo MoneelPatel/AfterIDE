@@ -4,12 +4,11 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies including curl for health checks
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -24,11 +23,8 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p /tmp/afteride
 
-# Make scripts executable
-RUN chmod +x healthcheck.py
-RUN chmod +x simple_healthcheck.py
+# Make startup script executable
 RUN chmod +x start.sh
-RUN chmod +x main.py
 
 # Add current directory to Python path
 ENV PYTHONPATH=/app
@@ -36,9 +32,5 @@ ENV PYTHONPATH=/app
 # Expose port
 EXPOSE 8000
 
-# Health check - use simple port check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=5 \
-    CMD python simple_healthcheck.py
-
-# Run the application using the main.py entry point
-CMD ["python", "main.py"] 
+# Run the application using the startup script
+CMD ["./start.sh"] 
