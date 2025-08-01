@@ -1,14 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc", "libpq-dev", "pip"]
+nixPkgs = ["python311", "gcc", "postgresql", "pip"]
 
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
   "pip install -r requirements-railway.txt"
 ]
-
-[phases.build]
-cmds = ["echo 'Build phase completed'"]
 
 [start]
 cmd = "python main.py" 

@@ -1,16 +1,10 @@
 [phases.setup]
-nixPkgs = ["python311", "nodejs_18", "gcc", "libpq-dev", "pip"]
+nixPkgs = ["python311", "gcc", "postgresql", "pip"]
 
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
-  "pip install -r backend/requirements-railway.txt",
-  "cd frontend && npm ci"
-]
-
-[phases.build]
-cmds = [
-  "cd frontend && npm run build"
+  "pip install -r backend/requirements-railway.txt"
 ]
 
 [start]
