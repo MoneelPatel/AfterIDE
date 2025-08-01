@@ -111,7 +111,8 @@ class ApiService {
   async createSubmission(submissionData: {
     title: string;
     description?: string;
-    file_id: string;
+    file_id?: string;
+    file_path?: string;
     reviewer_username?: string;
   }) {
     return this.request('/submissions/', {
