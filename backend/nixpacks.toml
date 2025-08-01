@@ -1,11 +1,15 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc", "libpq-dev"]
+nixPkgs = ["python311", "gcc", "libpq-dev", "pip"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+  "pip install --upgrade pip",
+  "pip install -r requirements-railway.txt",
+  "python setup_railway.py"
+]
 
 [phases.build]
 cmds = ["echo 'Build phase completed'"]
 
 [start]
-cmd = "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT" 
+cmd = "cd backend && python main.py" 

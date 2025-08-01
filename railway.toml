@@ -14,7 +14,7 @@ LOG_LEVEL = "INFO"
 [[services]]
 name = "afteride-backend"
 source = "backend"
-buildCommand = "pip install -r requirements.txt"
+buildCommand = "pip install -r requirements-railway.txt"
 startCommand = "python main.py"
 
 [[services]]
