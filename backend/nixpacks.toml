@@ -4,7 +4,7 @@ nixPkgs = ["python311", "gcc", "postgresql", "pip"]
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
-  "pip install -r requirements-railway.txt"
+  "pip install -r requirements.txt"
 ]
 
 [start]
