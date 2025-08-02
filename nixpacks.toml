@@ -1,15 +1,17 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "gcc", "postgresql_16.dev"]
+nixPkgs = ["python311", "gcc", "postgresql_16.dev"]
 
 [phases.install]
 cmds = [
   "cd backend",
+  "python -m venv /opt/venv",
+  "source /opt/venv/bin/activate",
   "python -m pip install --upgrade pip",
   "python -m pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "cd backend && python start.py"
+cmd = "cd backend && source /opt/venv/bin/activate && python start.py"
 
 [variables]
 PYTHONPATH = "/app/backend" 
