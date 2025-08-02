@@ -135,6 +135,19 @@ install_frontend_deps() {
     print_success "Frontend dependencies installed"
 }
 
+# Function to run HTTPS enforcement tests
+run_https_tests() {
+    print_status "Running HTTPS enforcement tests..."
+    
+    # Run the HTTPS test script
+    if [ -f "test-https-enforcement.js" ]; then
+        node test-https-enforcement.js
+        print_success "HTTPS enforcement tests completed"
+    else
+        print_warning "HTTPS enforcement test script not found, skipping..."
+    fi
+}
+
 # Function to run backend tests
 run_backend_tests() {
     print_status "Running backend integration tests..."
@@ -221,6 +234,7 @@ main() {
     # Run tests
     run_backend_tests
     run_frontend_tests
+    run_https_tests
     
     # Generate report
     generate_test_report

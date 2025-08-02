@@ -27,7 +27,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showReviewerDropdown, setShowReviewerDropdown] = useState(false);
   
-  const { createSubmission, availableReviewers, fetchAvailableReviewers, error, clearError } = useSubmissionStore();
+  const { createCodeReview, availableReviewers, fetchAvailableReviewers, error, clearError } = useSubmissionStore();
 
   useEffect(() => {
     fetchAvailableReviewers();
@@ -51,7 +51,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
         reviewer_username: reviewerUsername.trim() || undefined
       };
 
-      await createSubmission(submissionData);
+      await createCodeReview(submissionData);
       
       // Reset form
       setTitle('');
@@ -62,7 +62,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
         onSuccess();
       }
     } catch (err) {
-      console.error('Failed to create submission:', err);
+      console.error('Failed to create code review:', err);
     } finally {
       setIsSubmitting(false);
     }

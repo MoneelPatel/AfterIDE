@@ -45,6 +45,7 @@ interface SubmissionState {
   fetchPendingSubmissions: () => Promise<void>;
   fetchSubmission: (id: string) => Promise<void>;
   createSubmission: (data: SubmissionCreate) => Promise<Submission | null>;
+  createCodeReview: (data: SubmissionCreate) => Promise<Submission | null>;
   reviewSubmission: (id: string, review: SubmissionReview) => Promise<Submission | null>;
   updateSubmission: (id: string, data: Partial<SubmissionCreate>) => Promise<Submission | null>;
   deleteSubmission: (id: string) => Promise<boolean>;
@@ -205,6 +206,47 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
       return response;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to create submission');
+      set({ loading: false });
+      return null;
+    }
+  },
+
+  createCodeReview: async (data: SubmissionCreate) => {
+    const { setLoading, setError } = get();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
+        return null;
+      }
+
+      // If data has file_path instead of file_id, convert it
+      let submissionData = data;
+      if ('file_path' in data && !data.file_id) {
+        // Get file information by path using the HTTPS-compatible endpoint
+        const fileInfo = await apiService.getFileByPathCodeReview(token, data.file_path as string) as {
+          file_id: string;
+          filename: string;
+          filepath: string;
+          language: string;
+        };
+        
+        // Create new submission data with file_id
+        submissionData = {
+          ...data,
+          file_id: fileInfo.file_id
+        };
+      }
+
+      const response = await apiService.createCodeReview(token, submissionData) as Submission;
+      
+      set({ loading: false, error: null });
+      return response;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to create code review');
       set({ loading: false });
       return null;
     }

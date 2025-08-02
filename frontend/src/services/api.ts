@@ -11,37 +11,28 @@ const getApiBaseUrl = (): string => {
   console.log('🔍 window.location.protocol:', window.location.protocol);
   console.log('🔍 window.location.hostname:', window.location.hostname);
   console.log('🔍 import.meta.env.DEV:', import.meta.env.DEV);
+  console.log('🔍 import.meta.env.PROD:', import.meta.env.PROD);
   
   // Check if we have a production API URL configured
-  const apiBaseUrl = import.meta.env.VITE_API_URL;
+  let apiBaseUrl = import.meta.env.VITE_API_URL;
   
   if (apiBaseUrl) {
     console.log('🔍 Using VITE_API_URL:', apiBaseUrl);
     
-    // Ensure HTTPS is used in production
-    if (window.location.protocol === 'https:' && apiBaseUrl.startsWith('http://')) {
-      console.warn('Mixed content detected: Converting HTTP API URL to HTTPS');
-      const httpsUrl = apiBaseUrl.replace('http://', 'https://');
-      console.log('🔍 Converted to HTTPS:', httpsUrl);
-      return httpsUrl;
-    }
-    
-    // Additional safety check: force HTTPS for any HTTP URLs
+    // Force HTTPS for any HTTP URLs, especially in production
     if (apiBaseUrl.startsWith('http://')) {
-      console.warn('Forcing HTTPS for HTTP API URL');
-      const httpsUrl = apiBaseUrl.replace('http://', 'https://');
-      console.log('🔍 Forced HTTPS conversion:', httpsUrl);
-      return httpsUrl;
+      console.warn('Converting HTTP API URL to HTTPS');
+      apiBaseUrl = apiBaseUrl.replace('http://', 'https://');
+      console.log('🔍 Converted to HTTPS:', apiBaseUrl);
     }
     
-    console.log('🔍 Returning apiBaseUrl as-is:', apiBaseUrl);
     return apiBaseUrl;
   }
   
   // Check if we're running on Railway (production)
-  if (window.location.hostname.includes('railway.app')) {
-    console.log('🔍 Running on Railway, using sad-chess backend');
-    // Use the sad-chess backend URL
+  if (window.location.hostname.includes('railway.app') || import.meta.env.PROD) {
+    console.log('🔍 Running on Railway or in production, using HTTPS sad-chess backend');
+    // Always use HTTPS for Railway deployments
     return 'https://sad-chess-production.up.railway.app/api/v1';
   }
   
@@ -53,8 +44,8 @@ const getApiBaseUrl = (): string => {
   }
   
   // Fallback for production without environment variable
-  console.log('🔍 Fallback: using sad-chess backend');
-  // Use the sad-chess backend URL
+  console.log('🔍 Fallback: using HTTPS sad-chess backend');
+  // Always use HTTPS for production fallback
   return 'https://sad-chess-production.up.railway.app/api/v1';
 };
 
@@ -69,11 +60,20 @@ function forceHttps(url: string): string {
     return httpsUrl;
   }
   
-  // Also handle sad-chess-production specifically
-  const converted = url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
-  if (converted !== url) {
-    console.log('🔍 forceHttps converted sad-chess URL:', converted);
-    return converted;
+  // Also handle sad-chess-production specifically - ensure it's always HTTPS
+  if (url.includes('sad-chess-production.up.railway.app')) {
+    const httpsUrl = url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
+    if (httpsUrl !== url) {
+      console.log('🔍 forceHttps converted sad-chess URL to HTTPS:', httpsUrl);
+      return httpsUrl;
+    }
+  }
+  
+  // Additional safety: if we're on HTTPS page, ensure all URLs are HTTPS
+  if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+    const httpsUrl = url.replace('http://', 'https://');
+    console.log('🔍 forceHttps: HTTPS page detected, converting to HTTPS:', httpsUrl);
+    return httpsUrl;
   }
   
   console.log('🔍 forceHttps no conversion needed:', url);
@@ -103,6 +103,10 @@ class ApiService {
     if (baseUrl) {
       let fullUrl = `${baseUrl}${endpoint}`;
       
+      console.log('🔍 getFullUrl - baseUrl:', baseUrl);
+      console.log('🔍 getFullUrl - endpoint:', endpoint);
+      console.log('🔍 getFullUrl - initial fullUrl:', fullUrl);
+      
       // Final safety check: ensure HTTPS when page is loaded over HTTPS
       if (window.location.protocol === 'https:' && fullUrl.startsWith('http://')) {
         console.warn('Final HTTPS enforcement: converting HTTP to HTTPS');
@@ -110,6 +114,14 @@ class ApiService {
         console.log('🔍 Final URL after HTTPS enforcement:', fullUrl);
       }
       
+      // Additional check for Railway domains
+      if (fullUrl.includes('railway.app') && fullUrl.startsWith('http://')) {
+        console.warn('Railway domain detected with HTTP, converting to HTTPS');
+        fullUrl = fullUrl.replace('http://', 'https://');
+        console.log('🔍 Final URL after Railway HTTPS enforcement:', fullUrl);
+      }
+      
+      console.log('🔍 getFullUrl - final fullUrl:', fullUrl);
       return fullUrl;
     }
     return endpoint;
@@ -288,6 +300,16 @@ class ApiService {
     });
   }
 
+  async createCodeReview(token: string, submissionData: any) {
+    return this.request('/code-reviews', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(submissionData),
+    });
+  }
+
   async getSubmissions(token: string, params?: any) {
     // Filter out undefined values from params
     const cleanParams = params ? Object.fromEntries(
@@ -368,6 +390,19 @@ class ApiService {
     const cacheBuster = Date.now();
     const endpoint = `/submissions/file-by-path/${encodeURIComponent(filepath)}?cb=${cacheBuster}`;
     console.log('🔍 getFileByPath called with:', { token: token ? 'present' : 'missing', filepath, endpoint });
+    console.log('🔍 Full URL will be:', `${this.getBaseUrl()}${endpoint}`);
+    return this.request(endpoint, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getFileByPathCodeReview(token: string, filepath: string) {
+    // Use the existing submissions endpoint since code-reviews endpoint doesn't exist
+    const cacheBuster = Date.now();
+    const endpoint = `/submissions/file-by-path/${encodeURIComponent(filepath)}?cb=${cacheBuster}`;
+    console.log('🔍 getFileByPathCodeReview called with:', { token: token ? 'present' : 'missing', filepath, endpoint });
     console.log('🔍 Full URL will be:', `${this.getBaseUrl()}${endpoint}`);
     return this.request(endpoint, {
       headers: {

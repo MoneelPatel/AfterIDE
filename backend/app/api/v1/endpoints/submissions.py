@@ -227,6 +227,154 @@ async def create_submission(
             detail="Failed to create submission"
         )
 
+@router.post("/code-reviews", response_model=SubmissionResponse, status_code=status.HTTP_201_CREATED)
+async def create_code_review(
+    submission_data: SubmissionCreate,
+    current_user: User = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new code review submission (HTTPS-compatible endpoint)."""
+    try:
+        # Validate that file_id is provided
+        if not submission_data.file_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="file_id is required for submissions"
+            )
+        
+        # Verify the file exists and belongs to the user's session
+        file_query = select(File).where(
+            File.id == normalize_uuid_string(submission_data.file_id)
+        ).options(joinedload(File.session))
+        file_result = await db.execute(file_query)
+        file = file_result.scalar_one_or_none()
+        
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found. Please save your file before submitting."
+            )
+        
+        # Check if the file belongs to the current user's session
+        if str(file.session.user_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You can only submit files from your own sessions."
+            )
+        
+        # Handle reviewer assignment if provided
+        reviewer_id = None
+        if submission_data.reviewer_username:
+            # Find the reviewer by username (any user can be a reviewer)
+            reviewer_query = select(User).where(
+                User.username == submission_data.reviewer_username
+            )
+            reviewer_result = await db.execute(reviewer_query)
+            reviewer = reviewer_result.scalar_one_or_none()
+            
+            if not reviewer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Reviewer '{submission_data.reviewer_username}' not found"
+                )
+            reviewer_id = str(reviewer.id)
+        else:
+            # If no reviewer specified, automatically assign admin
+            admin_query = select(User).where(User.role == UserRole.ADMIN)
+            admin_result = await db.execute(admin_query)
+            admin = admin_result.scalar_one_or_none()
+            
+            if admin:
+                reviewer_id = str(admin.id)
+        
+        # Create submission
+        submission = Submission(
+            id=str(uuid.uuid4()),
+            title=submission_data.title,
+            description=submission_data.description,
+            file_id=submission_data.file_id,
+            user_id=str(current_user.id),
+            reviewer_id=reviewer_id,
+            status=SubmissionStatus.PENDING
+        )
+        
+        db.add(submission)
+        await db.commit()
+        await db.refresh(submission)
+        
+        # Load relationships for response
+        await db.refresh(submission, ['user', 'file', 'reviewer'])
+        
+        return _get_submission_response(submission)
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error in create_code_review: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create code review"
+        )
+
+@router.get("/code-reviews/file-by-path/{filepath:path}")
+async def get_file_by_path_code_review(
+    filepath: str,
+    current_user: User = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get file information by path for code review creation (HTTPS-compatible endpoint)."""
+    try:
+        # Normalize the filepath to avoid double slashes
+        normalized_filepath = f"/{filepath.lstrip('/')}"
+        
+        # Query file by filepath (assuming files belong to the current user's sessions)
+        # First, get the user's sessions
+        session_query = select(Session).where(Session.user_id == str(current_user.id))
+        session_result = await db.execute(session_query)
+        user_sessions = session_result.scalars().all()
+        
+        if not user_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No sessions found for user"
+            )
+        
+        # Search for the file in any of the user's sessions
+        file_query = select(File).where(
+            and_(
+                File.session_id.in_([str(session.id) for session in user_sessions]),
+                File.filepath == normalized_filepath
+            )
+        )
+        
+        file_result = await db.execute(file_query)
+        file = file_result.scalar_one_or_none()
+        
+        if not file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {normalized_filepath}"
+            )
+        
+        return {
+            "file_id": str(file.id),
+            "filename": file.filename,
+            "filepath": file.filepath,
+            "language": file.language,
+            "session_id": str(file.session_id)
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error in get_file_by_path_code_review: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get file information"
+        )
+
 @router.get("/all", response_model=SubmissionListResponse)
 async def get_all_submissions(
     page: int = Query(1, ge=1, description="Page number"),
