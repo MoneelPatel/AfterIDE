@@ -25,6 +25,15 @@ const getApiBaseUrl = (): string => {
       console.log('🔍 Converted to HTTPS:', httpsUrl);
       return httpsUrl;
     }
+    
+    // Additional safety check: force HTTPS for any HTTP URLs
+    if (apiBaseUrl.startsWith('http://')) {
+      console.warn('Forcing HTTPS for HTTP API URL');
+      const httpsUrl = apiBaseUrl.replace('http://', 'https://');
+      console.log('🔍 Forced HTTPS conversion:', httpsUrl);
+      return httpsUrl;
+    }
+    
     console.log('🔍 Returning apiBaseUrl as-is:', apiBaseUrl);
     return apiBaseUrl;
   }
@@ -51,7 +60,24 @@ const getApiBaseUrl = (): string => {
 
 // Utility to force HTTPS for all API requests to sad-chess-production
 function forceHttps(url: string): string {
-  return url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
+  console.log('🔍 forceHttps input:', url);
+  
+  // Force HTTPS for any HTTP URLs
+  if (url.startsWith('http://')) {
+    const httpsUrl = url.replace('http://', 'https://');
+    console.log('🔍 forceHttps converted HTTP to HTTPS:', httpsUrl);
+    return httpsUrl;
+  }
+  
+  // Also handle sad-chess-production specifically
+  const converted = url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
+  if (converted !== url) {
+    console.log('🔍 forceHttps converted sad-chess URL:', converted);
+    return converted;
+  }
+  
+  console.log('🔍 forceHttps no conversion needed:', url);
+  return url;
 }
 
 // Create API service with proper base URL
@@ -75,7 +101,16 @@ class ApiService {
   private getFullUrl(endpoint: string): string {
     const baseUrl = this.getBaseUrl();
     if (baseUrl) {
-      return `${baseUrl}${endpoint}`;
+      let fullUrl = `${baseUrl}${endpoint}`;
+      
+      // Final safety check: ensure HTTPS when page is loaded over HTTPS
+      if (window.location.protocol === 'https:' && fullUrl.startsWith('http://')) {
+        console.warn('Final HTTPS enforcement: converting HTTP to HTTPS');
+        fullUrl = fullUrl.replace('http://', 'https://');
+        console.log('🔍 Final URL after HTTPS enforcement:', fullUrl);
+      }
+      
+      return fullUrl;
     }
     return endpoint;
   }
@@ -85,11 +120,15 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<T> {
     let url = this.getFullUrl(endpoint);
+    console.log('🔍 Original URL before forceHttps:', url);
     url = forceHttps(url); // Ensure HTTPS for all requests
+    console.log('🔍 Final URL after forceHttps:', url);
     console.log('🔍 API request to:', url);
     console.log('🔍 Base URL:', this.getBaseUrl());
     console.log('🔍 Endpoint:', endpoint);
     console.log('🔍 Instance ID:', this.instanceId);
+    console.log('🔍 Request method:', options.method || 'GET');
+    console.log('🔍 Request headers:', options.headers);
     
     const response = await fetch(url, {
       ...options,

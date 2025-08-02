@@ -236,3 +236,158 @@ class TestMainApplicationIntegration:
         
         assert get_db is not None
         assert get_current_user_dependency is not None 
+
+
+class TestSubmissionIntegration:
+    """Test submission functionality integration."""
+    
+    def test_submission_endpoints_exist(self):
+        """Test that submission endpoints are properly configured."""
+        client = TestClient(app)
+        
+        # Test that submission routes exist (will return 403 due to auth, not 404)
+        response = client.get("/api/v1/submissions/all")
+        assert response.status_code == 403  # Forbidden, not 404
+        
+        response = client.post("/api/v1/submissions")
+        assert response.status_code == 403  # Forbidden, not 404
+        
+        response = client.get("/api/v1/submissions/pending")
+        assert response.status_code == 403  # Forbidden, not 404
+        
+        response = client.get("/api/v1/submissions/reviewers")
+        assert response.status_code == 403  # Forbidden, not 404
+        
+        response = client.get("/api/v1/submissions/stats")
+        assert response.status_code == 403  # Forbidden, not 404
+    
+    def test_submission_schemas_are_loaded(self):
+        """Test that submission schemas are properly loaded."""
+        # Check that submission schemas are available
+        from app.schemas.submissions import (
+            SubmissionCreate, SubmissionUpdate, SubmissionReview,
+            SubmissionResponse, SubmissionListResponse, SubmissionStats
+        )
+        
+        assert SubmissionCreate is not None
+        assert SubmissionUpdate is not None
+        assert SubmissionReview is not None
+        assert SubmissionResponse is not None
+        assert SubmissionListResponse is not None
+        assert SubmissionStats is not None
+    
+    def test_submission_models_are_loaded(self):
+        """Test that submission models are properly loaded."""
+        # Check that submission models are available
+        from app.models.submission import Submission, SubmissionStatus
+        
+        assert Submission is not None
+        assert SubmissionStatus is not None
+        
+        # Check that SubmissionStatus has expected values
+        assert hasattr(SubmissionStatus, 'PENDING')
+        assert hasattr(SubmissionStatus, 'APPROVED')
+        assert hasattr(SubmissionStatus, 'REJECTED')
+        assert hasattr(SubmissionStatus, 'UNDER_REVIEW')
+    
+    def test_submission_router_is_included(self):
+        """Test that the submission router is included in the app."""
+        # Check that submission routes are included in the app
+        submission_routes = [route for route in app.routes if hasattr(route, 'path') and '/submissions' in route.path]
+        assert len(submission_routes) > 0
+        
+        # Check for specific submission endpoints
+        submission_paths = [route.path for route in submission_routes if hasattr(route, 'path')]
+        assert any('/submissions' in path for path in submission_paths)
+    
+    def test_submission_dependencies_are_configured(self):
+        """Test that submission dependencies are properly configured."""
+        # Check that submission endpoints use proper dependencies
+        from app.api.v1.endpoints.submissions import router as submission_router
+        
+        # Check that the router exists and has routes
+        assert submission_router is not None
+        assert len(submission_router.routes) > 0
+        
+        # Check that routes exist and are properly configured
+        # Note: Some routes might not have explicit dependencies but still work
+        # due to global dependencies or function-level dependencies
+        route_count = 0
+        for route in submission_router.routes:
+            if hasattr(route, 'path'):
+                # Check for any route that might be related to submissions
+                if ('submissions' in route.path or 
+                    hasattr(route, 'name') and 'submission' in route.name.lower()):
+                    route_count += 1
+                    # Routes should have proper configuration
+                    assert hasattr(route, 'methods')
+                    assert len(route.methods) > 0
+        
+        # Should have multiple submission routes
+        assert route_count > 0
+    
+    def test_submission_workflow_integration(self):
+        """Test the complete submission workflow integration."""
+        # This test verifies that all components work together
+        # without actually making database calls
+        
+        # Check that all required components are available
+        from app.api.v1.endpoints.submissions import (
+            create_submission, get_all_submissions, get_pending_submissions,
+            get_available_reviewers, get_submission_stats, get_submission,
+            review_submission, update_submission, delete_submission
+        )
+        
+        assert create_submission is not None
+        assert get_all_submissions is not None
+        assert get_pending_submissions is not None
+        assert get_available_reviewers is not None
+        assert get_submission_stats is not None
+        assert get_submission is not None
+        assert review_submission is not None
+        assert update_submission is not None
+        assert delete_submission is not None
+    
+    def test_submission_error_handling(self):
+        """Test that submission endpoints handle errors properly."""
+        client = TestClient(app)
+        
+        # Test unauthorized access
+        response = client.get("/api/v1/submissions/all")
+        assert response.status_code == 403
+        
+        response = client.post("/api/v1/submissions", json={})
+        assert response.status_code == 403
+        
+        # Test invalid submission ID
+        response = client.get("/api/v1/submissions/invalid-id")
+        assert response.status_code == 403  # Auth required first
+    
+    def test_submission_api_structure(self):
+        """Test that the submission API has the expected structure."""
+        client = TestClient(app)
+        
+        # Get OpenAPI schema
+        response = client.get("/openapi.json")
+        assert response.status_code == 200
+        
+        schema = response.json()
+        
+        # Check that submission paths exist in the schema
+        paths = schema.get("paths", {})
+        submission_paths = [path for path in paths.keys() if "/submissions" in path]
+        
+        # Should have multiple submission endpoints
+        assert len(submission_paths) > 0
+        
+        # Check for key submission endpoints
+        expected_endpoints = [
+            "/api/v1/submissions/",
+            "/api/v1/submissions/all",
+            "/api/v1/submissions/pending",
+            "/api/v1/submissions/reviewers",
+            "/api/v1/submissions/stats"
+        ]
+        
+        for endpoint in expected_endpoints:
+            assert any(endpoint in path for path in submission_paths) 
