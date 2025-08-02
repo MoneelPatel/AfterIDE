@@ -16,7 +16,7 @@ const getApiBaseUrl = (): string => {
   
   // Check if we're running on Railway (production)
   if (window.location.hostname.includes('railway.app')) {
-    // Use the backend Railway URL for API calls
+    // Use the backend Railway URL for API calls - ensure HTTPS
     return 'https://sad-chess-production.up.railway.app/api/v1';
   }
   
@@ -27,7 +27,7 @@ const getApiBaseUrl = (): string => {
   }
   
   // Fallback for production without environment variable
-  // Use the backend Railway URL as default
+  // Use the backend Railway URL as default - ensure HTTPS
   return 'https://sad-chess-production.up.railway.app/api/v1';
 };
 
@@ -63,6 +63,15 @@ class ApiService {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API request failed:', response.status, errorText);
+      
+      // Handle 401 Unauthorized errors globally
+      if (response.status === 401) {
+        console.warn('Authentication failed, clearing invalid token');
+        localStorage.removeItem('authToken');
+        // Force page reload to redirect to login
+        window.location.reload();
+      }
+      
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
 

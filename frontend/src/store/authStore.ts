@@ -1,98 +1,136 @@
-import { create } from 'zustand'
-import { updateWebSocketSessions } from '../services/websocket'
-import apiService from '../services/api'
+/**
+ * AfterIDE - Authentication Store
+ * 
+ * Zustand store for managing authentication state and operations.
+ */
+
+import { create } from 'zustand';
+import { apiService } from '../services/api';
+import { updateWebSocketSessions } from '../services/websocket';
+import { clearAuthData } from '../utils/auth';
 
 interface User {
-  id: string
-  username: string
-  email: string
-  role: 'user' | 'admin' | 'reviewer'
+  id: string;
+  username: string;
+  email: string;
+  role: 'user' | 'admin' | 'reviewer';
 }
 
 interface AuthResponse {
-  access_token: string
-  user?: User
+  access_token: string;
+  user?: User;
 }
 
 interface AuthState {
-  isAuthenticated: boolean
-  user: User | null
-  token: string | null
-  login: (username: string, password: string) => Promise<boolean>
-  register: (username: string, email: string, password: string) => Promise<boolean>
-  logout: () => void
-  setToken: (token: string) => void
-  initialize: () => void
+  isAuthenticated: boolean;
+  user: User | null;
+  token: string | null;
+  login: (username: string, password: string) => Promise<boolean>;
+  register: (username: string, email: string, password: string) => Promise<boolean>;
+  logout: () => void;
+  setToken: (token: string) => void;
+  initialize: () => void;
+  clearAuth: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   user: null,
   token: null,
+  
   login: async (username: string, password: string) => {
     try {
-      const data = await apiService.login(username, password) as AuthResponse
+      const data = await apiService.login(username, password) as AuthResponse;
       
-      localStorage.setItem('authToken', data.access_token)
+      // Set authentication state first
       set({ 
         isAuthenticated: true, 
         user: data.user || { id: '1', username, email: '', role: 'user' as const }, 
         token: data.access_token 
-      })
+      });
       
-      // Update WebSocket sessions with new user session
+      // Store token in localStorage
+      localStorage.setItem('authToken', data.access_token);
+      
+      // Update WebSocket sessions with new user session after a small delay
+      // to ensure the authentication state is properly set
       console.log('Login successful, updating WebSocket sessions');
-      updateWebSocketSessions()
+      setTimeout(async () => {
+        try {
+          await updateWebSocketSessions();
+        } catch (error) {
+          console.error('Failed to update WebSocket sessions after login:', error);
+        }
+      }, 100);
       
-      return true
+      return true;
     } catch (error) {
-      console.error('Login error:', error)
-      return false
+      console.error('Login error:', error);
+      return false;
     }
   },
+  
   register: async (username: string, email: string, password: string) => {
     try {
-      const data = await apiService.register(username, email, password) as AuthResponse
+      const data = await apiService.register(username, email, password) as AuthResponse;
       
-      localStorage.setItem('authToken', data.access_token)
+      // Set authentication state first
       set({ 
         isAuthenticated: true, 
-        user: data.user || { id: '1', username, email, role: 'user' as const }, 
+        user: data.user || { id: '1', username, email: '', role: 'user' as const }, 
         token: data.access_token 
-      })
+      });
       
-      // Update WebSocket sessions with new user session
+      // Store token in localStorage
+      localStorage.setItem('authToken', data.access_token);
+      
+      // Update WebSocket sessions with new user session after a small delay
       console.log('Registration successful, updating WebSocket sessions');
-      updateWebSocketSessions()
+      setTimeout(async () => {
+        try {
+          await updateWebSocketSessions();
+        } catch (error) {
+          console.error('Failed to update WebSocket sessions after registration:', error);
+        }
+      }, 100);
       
-      return true
+      return true;
     } catch (error) {
-      console.error('Registration error:', error)
-      return false
+      console.error('Registration error:', error);
+      return false;
     }
   },
+  
   logout: () => {
-    const { token } = get()
+    const { token } = get();
     
     // Call logout API if we have a token
     if (token) {
       apiService.logout(token).catch(error => {
-        console.error('Logout API call failed:', error)
-      })
+        console.error('Logout API call failed:', error);
+      });
     }
     
-    localStorage.removeItem('authToken')
-    set({ isAuthenticated: false, user: null, token: null })
+    localStorage.removeItem('authToken');
+    set({ isAuthenticated: false, user: null, token: null });
     
     // Update WebSocket sessions
-    updateWebSocketSessions()
+    updateWebSocketSessions().catch(error => {
+      console.error('Failed to update WebSocket sessions on logout:', error);
+    });
   },
+  
   setToken: (token: string) => {
-    localStorage.setItem('authToken', token)
-    set({ token, isAuthenticated: true })
+    localStorage.setItem('authToken', token);
+    set({ token, isAuthenticated: true });
   },
+  
+  clearAuth: () => {
+    clearAuthData();
+  },
+  
   initialize: () => {
-    const token = localStorage.getItem('authToken')
+    const token = localStorage.getItem('authToken');
     if (token) {
       // Try to get current user info
       apiService.getCurrentUser(token)
@@ -101,15 +139,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             isAuthenticated: true, 
             user: data.user || { id: '1', username: 'user', email: '', role: 'user' as const }, 
             token 
-          })
-          updateWebSocketSessions()
+          });
+          updateWebSocketSessions();
         })
         .catch(error => {
-          console.error('Failed to get current user:', error)
+          console.error('Failed to get current user:', error);
           // Token might be invalid, clear it
-          localStorage.removeItem('authToken')
-          set({ isAuthenticated: false, user: null, token: null })
-        })
+          localStorage.removeItem('authToken');
+          set({ isAuthenticated: false, user: null, token: null });
+        });
     }
   }
-})) 
+})); 

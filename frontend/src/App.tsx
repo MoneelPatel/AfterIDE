@@ -7,6 +7,7 @@ import Layout from './components/Layout'
 import EditorPage from './pages/EditorPage'
 import LoginPage from './pages/LoginPage'
 import ReviewPage from './pages/ReviewPage'
+import AuthReset from './components/AuthReset'
 import { useAuthStore } from './store/authStore'
 
 function App() {
@@ -52,6 +53,9 @@ function App() {
               }
             />
           </Routes>
+          
+          {/* Auth reset button - only show when authenticated */}
+          {isAuthenticated && <AuthReset />}
         </div>
       </WebSocketProvider>
     </ThemeProvider>

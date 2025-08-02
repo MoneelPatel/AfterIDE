@@ -357,6 +357,50 @@ async def stop_session(
         "message": "Session stopped successfully"
     }
 
+@router.get("/current", response_model=Dict[str, Any])
+async def get_current_session(
+    current_user: Dict[str, Any] = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the current user's active session.
+    
+    Args:
+        current_user: Current authenticated user
+        db: Database session
+        
+    Returns:
+        Current session information or creates a new one if none exists
+    """
+    session_service = SessionService(db)
+    user_sessions = await session_service.get_user_sessions(str(current_user["id"]))
+    
+    # Get the first active session or create a new one
+    active_session = next((s for s in user_sessions if s.status == SessionStatus.ACTIVE.value), None)
+    
+    if not active_session:
+        # Create a new session for the user
+        active_session = await session_service.create_session(
+            user_id=str(current_user["id"]),
+            name="Development Session",
+            description="User development workspace"
+        )
+    
+    return {
+        "session_id": str(active_session.id),
+        "id": str(active_session.id),
+        "name": active_session.name,
+        "description": active_session.description,
+        "status": active_session.status,
+        "config": json.loads(active_session.config) if isinstance(active_session.config, str) else active_session.config,
+        "expires_at": active_session.expires_at.isoformat(),
+        "max_memory_mb": active_session.max_memory_mb,
+        "max_cpu_cores": active_session.max_cpu_cores,
+        "max_execution_time": active_session.max_execution_time,
+        "created_at": active_session.created_at.isoformat(),
+        "updated_at": active_session.updated_at.isoformat()
+    }
+
 @router.get("/status")
 async def sessions_status():
     """Get sessions service status."""

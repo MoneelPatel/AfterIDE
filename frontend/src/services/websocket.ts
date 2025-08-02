@@ -420,15 +420,82 @@ const getWebSocketUrl = (endpoint: string) => {
 };
 
 // Get user session ID from auth store
-const getUserSessionId = (): string => {
+const getUserSessionId = async (): Promise<string> => {
   const token = localStorage.getItem('authToken');
   if (!token) {
-    // Fallback to default session for unauthenticated users
+    console.log('No auth token found, using default session');
     return 'default-session';
   }
   
-  // For now, we'll use a simple hash of the token as session ID
-  // This will be replaced by the actual user session ID from the backend
+  try {
+    console.log('Fetching session ID from backend...');
+    
+    // Build the URL properly for different environments
+    let url = '/api/v1/sessions/current';
+    if (typeof window !== 'undefined' && window.location) {
+      // In browser environment, use relative URL
+      url = '/api/v1/sessions/current';
+    } else {
+      // In test environment, use a mock URL
+      url = 'http://localhost:8000/api/v1/sessions/current';
+    }
+    
+    // Get the actual session ID from the backend
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      // Check if the response is actually JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Backend returned non-JSON response, server may not be running');
+        return 'default-session';
+      }
+      
+      const data = await response.json();
+      const sessionId = data.session_id || 'default-session';
+      console.log('Successfully fetched session ID from backend:', sessionId);
+      return sessionId;
+    } else if (response.status === 401) {
+      console.warn('Authentication failed when fetching session ID, user may need to re-authenticate');
+      // Clear the invalid token
+      localStorage.removeItem('authToken');
+      return 'default-session';
+    } else {
+      console.warn('Failed to get session ID from backend, using fallback. Status:', response.status);
+      return 'default-session';
+    }
+  } catch (error) {
+    console.error('Error fetching session ID:', error);
+    
+    // Handle specific error types
+    if (error instanceof TypeError && error.message.includes('Invalid URL')) {
+      console.warn('Invalid URL in fetch, clearing token and using default session');
+      localStorage.removeItem('authToken');
+    } else if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
+      console.warn('Backend returned invalid JSON (possibly HTML), server may not be running');
+      // Don't clear the token in this case, as it might be a temporary server issue
+    } else if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.warn('Network error when fetching session ID, backend may not be running');
+    }
+    
+    return 'default-session';
+  }
+};
+
+// Synchronous version for backward compatibility (returns a promise)
+const getUserSessionIdSync = (): string => {
+  const token = localStorage.getItem('authToken');
+  if (!token) {
+    return 'default-session';
+  }
+  
+  // For backward compatibility, use a simple hash but this should be replaced
+  // with the async version that gets the real session ID from the backend
   let hash = 0;
   for (let i = 0; i < token.length; i++) {
     const char = token.charCodeAt(i);
@@ -445,7 +512,7 @@ const getAuthToken = (): string | null => {
 
 const terminalWebSocket = new WebSocketClient({
   url: getWebSocketUrl('/ws/terminal'),
-  sessionId: getUserSessionId(),
+  sessionId: getUserSessionIdSync(),
   token: getAuthToken() || undefined,
   connectionType: 'terminal',
   maxReconnectAttempts: 5,
@@ -455,7 +522,7 @@ const terminalWebSocket = new WebSocketClient({
 
 const filesWebSocket = new WebSocketClient({
   url: getWebSocketUrl('/ws/files'),
-  sessionId: getUserSessionId(),
+  sessionId: getUserSessionIdSync(),
   token: getAuthToken() || undefined,
   connectionType: 'files',
   maxReconnectAttempts: 5,
@@ -464,26 +531,20 @@ const filesWebSocket = new WebSocketClient({
 });
 
 // Function to update WebSocket sessions when user logs in/out
-export const updateWebSocketSessions = () => {
-  const newSessionId = getUserSessionId();
+export const updateWebSocketSessions = async () => {
   const newToken = getAuthToken();
   
-  console.log('updateWebSocketSessions called with session:', newSessionId, 'token:', newToken ? 'present' : 'none');
+  console.log('🔄 updateWebSocketSessions called with token:', newToken ? 'present' : 'none');
   
   // Get current connection status
   const terminalStatus = terminalWebSocket.getConnectionStatus();
   const filesStatus = filesWebSocket.getConnectionStatus();
   
-  // Update session and token
-  terminalWebSocket.updateSessionId(newSessionId);
-  terminalWebSocket.updateToken(newToken || '');
-  
-  filesWebSocket.updateSessionId(newSessionId);
-  filesWebSocket.updateToken(newToken || '');
+  console.log('📊 Current connection status - Terminal:', terminalStatus.isConnected, 'Files:', filesStatus.isConnected);
   
   // If user has logged out (no token), disconnect and don't reconnect
   if (!newToken) {
-    console.log('No token found, disconnecting WebSockets');
+    console.log('🚫 No token found, disconnecting WebSockets');
     if (terminalStatus.isConnected) {
       terminalWebSocket.disconnect();
     }
@@ -493,18 +554,79 @@ export const updateWebSocketSessions = () => {
     return;
   }
   
-  // Only reconnect if currently connected and session/token changed
-  if (terminalStatus.isConnected) {
-    console.log('Reconnecting terminal WebSocket with new session');
-    terminalWebSocket.disconnect();
-    setTimeout(() => terminalWebSocket.connect(), 100); // Small delay to prevent race conditions
-  }
-  
-  if (filesStatus.isConnected) {
-    console.log('Reconnecting files WebSocket with new session');
-    filesWebSocket.disconnect();
-    setTimeout(() => filesWebSocket.connect(), 100); // Small delay to prevent race conditions
+  try {
+    // Get the actual session ID from the backend
+    const newSessionId = await getUserSessionId();
+    console.log('✅ Got session ID from backend:', newSessionId);
+    
+    // If we got the default session ID, it means authentication failed or backend is not available
+    if (newSessionId === 'default-session') {
+      console.log('⚠️ Backend not available or authentication failed, using fallback session ID');
+      // Use the synchronous fallback for authenticated users
+      const fallbackSessionId = getUserSessionIdSync();
+      console.log('🔄 Using fallback session ID:', fallbackSessionId);
+      
+      // Update session and token
+      terminalWebSocket.updateSessionId(fallbackSessionId);
+      terminalWebSocket.updateToken(newToken);
+      
+      filesWebSocket.updateSessionId(fallbackSessionId);
+      filesWebSocket.updateToken(newToken);
+      
+      // Only reconnect if currently connected and session/token changed
+      const currentTerminalSession = terminalWebSocket.getMetadata()?.sessionId;
+      const currentFilesSession = filesWebSocket.getMetadata()?.sessionId;
+      
+      if (terminalStatus.isConnected && currentTerminalSession !== fallbackSessionId) {
+        console.log('🔄 Reconnecting terminal WebSocket with fallback session');
+        terminalWebSocket.disconnect();
+        setTimeout(() => terminalWebSocket.connect(), 100);
+      }
+      
+      if (filesStatus.isConnected && currentFilesSession !== fallbackSessionId) {
+        console.log('🔄 Reconnecting files WebSocket with fallback session');
+        filesWebSocket.disconnect();
+        setTimeout(() => filesWebSocket.connect(), 100);
+      }
+      return;
+    }
+    
+    // Get current session IDs for comparison
+    const currentTerminalSession = terminalWebSocket.getMetadata()?.sessionId;
+    const currentFilesSession = filesWebSocket.getMetadata()?.sessionId;
+    
+    console.log('🔄 Session ID comparison - Terminal:', currentTerminalSession, '->', newSessionId);
+    console.log('🔄 Session ID comparison - Files:', currentFilesSession, '->', newSessionId);
+    
+    // Update session and token
+    terminalWebSocket.updateSessionId(newSessionId);
+    terminalWebSocket.updateToken(newToken);
+    
+    filesWebSocket.updateSessionId(newSessionId);
+    filesWebSocket.updateToken(newToken);
+    
+    // Only reconnect if currently connected and session/token changed
+    if (terminalStatus.isConnected && currentTerminalSession !== newSessionId) {
+      console.log('🔄 Reconnecting terminal WebSocket with new session');
+      terminalWebSocket.disconnect();
+      setTimeout(() => terminalWebSocket.connect(), 100); // Small delay to prevent race conditions
+    }
+    
+    if (filesStatus.isConnected && currentFilesSession !== newSessionId) {
+      console.log('🔄 Reconnecting files WebSocket with new session');
+      filesWebSocket.disconnect();
+      setTimeout(() => filesWebSocket.connect(), 100); // Small delay to prevent race conditions
+    }
+  } catch (error) {
+    console.error('❌ Failed to update WebSocket sessions:', error);
+    // Fallback to synchronous version
+    const fallbackSessionId = getUserSessionIdSync();
+    console.log('🔄 Using fallback session ID:', fallbackSessionId);
+    terminalWebSocket.updateSessionId(fallbackSessionId);
+    terminalWebSocket.updateToken(newToken);
+    filesWebSocket.updateSessionId(fallbackSessionId);
+    filesWebSocket.updateToken(newToken);
   }
 };
 
-export { WebSocketClient, terminalWebSocket, filesWebSocket }; 
+export { WebSocketClient, terminalWebSocket, filesWebSocket, getUserSessionId, getUserSessionIdSync, getAuthToken }; 

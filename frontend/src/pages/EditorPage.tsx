@@ -12,7 +12,7 @@ import XTerminal from '../components/XTerminal'
 import SubmissionForm from '../components/SubmissionForm'
 import { useWebSocket } from '../contexts/WebSocketContext'
 import { useAuthStore } from '../store/authStore'
-import { getUserSessionId, getAuthToken } from '../utils/session';
+import { getUserSessionId, getUserSessionIdSync, getAuthToken } from '../services/websocket';
 
 interface Session {
   id: string
@@ -227,17 +227,30 @@ const EditorPage: React.FC = () => {
     const connectWebSockets = async () => {
       try {
         // Get the current session ID and token from the WebSocket service
-        const sessionId = getUserSessionId();
+        const sessionId = await getUserSessionId();
         const token = getAuthToken();
         
         console.log('EditorPage: Connecting WebSockets with session:', sessionId, 'authenticated:', isAuthenticated);
         
+        // Only connect if we have a valid token
+        if (!token) {
+          console.log('EditorPage: Not connecting WebSockets - no token');
+          return;
+        }
+        
+        // If we got the default session ID but have a token, use the fallback session ID
+        let finalSessionId = sessionId;
+        if (sessionId === 'default-session' && token) {
+          console.log('EditorPage: Backend not available, using fallback session ID');
+          finalSessionId = getUserSessionIdSync();
+        }
+        
         // Only connect if not already connected
         if (!terminalConnected) {
-          await connectTerminal(sessionId, token || undefined);
+          await connectTerminal(finalSessionId, token);
         }
         if (!filesConnected) {
-          await connectFiles(sessionId, token || undefined);
+          await connectFiles(finalSessionId, token);
         }
       } catch (error) {
         console.error('Failed to connect to WebSocket:', error)
