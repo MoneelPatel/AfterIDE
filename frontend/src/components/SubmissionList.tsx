@@ -178,7 +178,7 @@ const SubmissionList: React.FC<SubmissionListProps> = ({
                   <span>File: {submission.file.filename}</span>
                   <span>By: {submission.user.username}</span>
                   <span>
-                    {formatDistanceToNow(new Date(submission.created_at + 'Z'), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(submission.created_at), { addSuffix: true })}
                   </span>
                   {submission.reviewer && (
                     <span>Assigned to: {submission.reviewer.username}</span>

@@ -104,7 +104,7 @@ const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
               <div className="flex items-center space-x-4 mt-1">
                 {getStatusBadge(submission.status)}
                 <span className="text-sm text-gray-500 dark:text-gray-400">
-                  Submitted {formatDistanceToNow(new Date(submission.created_at + 'Z'), { addSuffix: true })}
+                  Submitted {formatDistanceToNow(new Date(submission.created_at), { addSuffix: true })}
                 </span>
               </div>
             </div>
@@ -162,7 +162,7 @@ const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
                       <div>
                         <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed</dt>
                         <dd className="text-sm text-gray-900 dark:text-white">
-                          {formatDistanceToNow(new Date(submission.reviewed_at + 'Z'), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(submission.reviewed_at), { addSuffix: true })}
                         </dd>
                       </div>
                     )}

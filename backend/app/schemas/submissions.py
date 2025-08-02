@@ -4,7 +4,7 @@ AfterIDE - Submission Schemas
 Pydantic models for code submission and review workflow.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -58,6 +58,8 @@ class FileSummary(BaseModel):
 
 class SubmissionResponse(BaseModel):
     """Full submission response model."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     title: str
     description: Optional[str] = None
@@ -77,8 +79,12 @@ class SubmissionResponse(BaseModel):
     reviewer: Optional[UserSummary] = None
     file: FileSummary
     
-    class Config:
-        from_attributes = True
+    @field_serializer('created_at', 'updated_at', 'submitted_at', 'reviewed_at')
+    def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        """Serialize datetime fields to ISO format strings."""
+        if value is None:
+            return None
+        return value.isoformat()
 
 
 class SubmissionListResponse(BaseModel):

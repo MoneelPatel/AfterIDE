@@ -44,7 +44,7 @@ def normalize_uuid_string(uuid_str: str) -> str:
 def _get_user_summary(user: User) -> UserSummary:
     """Convert user model to summary."""
     return UserSummary(
-        id=user.id,
+        id=str(user.id),  # Convert UUID to string
         username=user.username,
         role=user.role
     )
@@ -52,7 +52,7 @@ def _get_user_summary(user: User) -> UserSummary:
 def _get_file_summary(file: File) -> FileSummary:
     """Convert file model to summary."""
     return FileSummary(
-        id=file.id,
+        id=str(file.id),  # Convert UUID to string
         filename=file.filename,
         filepath=file.filepath,
         language=file.language,
@@ -62,12 +62,12 @@ def _get_file_summary(file: File) -> FileSummary:
 def _get_submission_response(submission: Submission) -> SubmissionResponse:
     """Convert submission model to response."""
     return SubmissionResponse(
-        id=submission.id,
+        id=str(submission.id),  # Convert UUID to string
         title=submission.title,
         description=submission.description,
-        file_id=submission.file_id,
-        user_id=submission.user_id,
-        reviewer_id=submission.reviewer_id,
+        file_id=str(submission.file_id),  # Convert UUID to string
+        user_id=str(submission.user_id),  # Convert UUID to string
+        reviewer_id=str(submission.reviewer_id) if submission.reviewer_id else None,  # Convert UUID to string
         status=submission.status,
         review_comments=submission.review_comments,
         review_metadata=submission.review_metadata,
@@ -75,9 +75,9 @@ def _get_submission_response(submission: Submission) -> SubmissionResponse:
         updated_at=submission.updated_at,
         submitted_at=submission.submitted_at,
         reviewed_at=submission.reviewed_at,
-        user=_get_user_summary(submission.user),
+        user=_get_user_summary(submission.user) if submission.user else None,
         reviewer=_get_user_summary(submission.reviewer) if submission.reviewer else None,
-        file=_get_file_summary(submission.file)
+        file=_get_file_summary(submission.file) if submission.file else None
     )
 
 @router.get("/file-by-path/{filepath:path}")
@@ -208,20 +208,24 @@ async def create_submission(
     """Create a new code submission for review."""
     # Verify the file exists and belongs to the user
     if submission_data.file_id:
-        # Check if file exists and belongs to current user
+        # Check if file exists and belongs to current user's session
         file_query = select(File).where(
-            and_(
-                File.id == normalize_uuid_string(submission_data.file_id),
-                File.user_id == str(current_user.id)
-            )
-        )
+            File.id == normalize_uuid_string(submission_data.file_id)
+        ).options(joinedload(File.session))
         file_result = await db.execute(file_query)
         file = file_result.scalar_one_or_none()
         
         if not file:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found or access denied"
+                detail="File not found"
+            )
+        
+        # Check if the file belongs to the current user's session
+        if str(file.session.user_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You can only submit files from your own sessions."
             )
     
     # Create submission
