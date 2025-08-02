@@ -369,11 +369,34 @@ class WebSocketClient {
 
 // WebSocket manager instances
 const getWebSocketUrl = (endpoint: string) => {
-  // In development, use the current window location to build WebSocket URL
-  // This will use the Vite dev server proxy to forward to the backend
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host; // This includes port
-  return `${protocol}//${host}${endpoint}`;
+  // Check if we have a production WebSocket URL configured
+  const wsBaseUrl = import.meta.env.VITE_WS_URL;
+  
+  if (wsBaseUrl) {
+    // Use the configured WebSocket URL for production
+    return `${wsBaseUrl}${endpoint}`;
+  }
+  
+  // Check if we're running on Railway (production)
+  if (window.location.hostname.includes('railway.app')) {
+    // Use the backend Railway URL for WebSocket connections
+    return `wss://sad-chess-production.up.railway.app${endpoint}`;
+  }
+  
+  // Check if we're in development mode
+  if (import.meta.env.DEV) {
+    // In development, use the current window location to build WebSocket URL
+    // This will use the Vite dev server proxy to forward to the backend
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host; // This includes port
+    return `${protocol}//${host}${endpoint}`;
+  }
+  
+  // Fallback for production without environment variable
+  // Use the backend Railway URL as default
+  const url = `wss://sad-chess-production.up.railway.app${endpoint}`;
+  console.log('Using fallback URL:', url);
+  return url;
 };
 
 // Get user session ID from auth store

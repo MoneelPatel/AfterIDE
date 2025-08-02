@@ -4,205 +4,272 @@
  * Centralized API service for making HTTP requests to the backend.
  */
 
-import { SubmissionStatus } from '../types/submissions';
+// Get the API base URL based on environment
+const getApiBaseUrl = (): string => {
+  // Check if we have a production API URL configured
+  const apiBaseUrl = import.meta.env.VITE_API_URL;
+  
+  if (apiBaseUrl) {
+    // Use the configured API URL for production
+    return apiBaseUrl;
+  }
+  
+  // Check if we're running on Railway (production)
+  if (window.location.hostname.includes('railway.app')) {
+    // Use the backend Railway URL for API calls
+    return 'https://sad-chess-production.up.railway.app/api/v1';
+  }
+  
+  // Check if we're in development mode
+  if (import.meta.env.DEV) {
+    // In development, use relative URLs (will be proxied by Vite)
+    return '/api/v1';
+  }
+  
+  // Fallback for production without environment variable
+  // Use the backend Railway URL as default
+  return 'https://sad-chess-production.up.railway.app/api/v1';
+};
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
-
-interface ApiResponse<T> {
-  data: T;
-  error?: string;
-}
-
+// Create API service with proper base URL
 class ApiService {
   private baseUrl: string;
 
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
+  constructor() {
+    this.baseUrl = getApiBaseUrl();
   }
 
-  private async request<T>(
+  private getFullUrl(endpoint: string): string {
+    if (this.baseUrl) {
+      return `${this.baseUrl}${endpoint}`;
+    }
+    return endpoint;
+  }
+
+  async request<T>(
     endpoint: string,
     options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
-    const url = `${this.baseUrl}${endpoint}`;
+  ): Promise<T> {
+    const url = this.getFullUrl(endpoint);
     
-    // Get auth token from localStorage (match the key used in authStore)
-    const token = localStorage.getItem('authToken');
-    
-    const config: RequestInit = {
+    const response = await fetch(url, {
+      ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
-      ...options,
-    };
+    });
 
-    try {
-      const response = await fetch(url, config);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API request failed:', response.status, errorText);
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    }
 
-      const data = await response.json();
-      return { data };
-    } catch (error) {
-      return {
-        data: null as T,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      };
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    } else {
+      const text = await response.text();
+      console.error('Unexpected response type:', contentType, text);
+      throw new Error('Expected JSON response but got: ' + contentType);
     }
   }
 
   // Auth endpoints
-  async login(credentials: { username: string; password: string }) {
+  async login(username: string, password: string) {
     return this.request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({ username, password }),
     });
   }
 
-  async register(userData: { username: string; email: string; password: string }) {
+  async register(username: string, email: string, password: string) {
     return this.request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify(userData),
+      body: JSON.stringify({ 
+        username, 
+        email, 
+        password,
+        confirm_password: password 
+      }),
     });
   }
 
-  async getCurrentUser() {
-    return this.request('/auth/me');
+  async logout(token: string) {
+    return this.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  // User endpoints
+  async getCurrentUser(token: string) {
+    return this.request('/auth/me', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
 
   // Session endpoints
-  async getSessions() {
-    return this.request('/sessions/');
-  }
-
-  async createSession(sessionData: { name: string; description?: string }) {
-    return this.request('/sessions/', {
+  async createSession(token: string, sessionData: any) {
+    return this.request('/sessions', {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify(sessionData),
     });
   }
 
-  async getSession(sessionId: string) {
-    return this.request(`/sessions/${sessionId}`);
+  async getSessions(token: string) {
+    return this.request('/sessions', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
 
   // File endpoints
-  async getFiles(sessionId: string) {
-    return this.request(`/files/?session_id=${sessionId}`);
+  async getFiles(token: string, sessionId: string) {
+    return this.request(`/files/${sessionId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
 
-  async getFile(fileId: string) {
-    return this.request(`/files/${fileId}`);
+  async saveFile(token: string, sessionId: string, fileData: any) {
+    return this.request(`/files/${sessionId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(fileData),
+    });
   }
 
-  async updateFile(fileId: string, content: string) {
-    return this.request(`/files/${fileId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ content }),
+  // Execution endpoints
+  async executeCode(token: string, sessionId: string, codeData: any) {
+    return this.request(`/executions/${sessionId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(codeData),
     });
   }
 
   // Submission endpoints
-  async createSubmission(submissionData: {
-    title: string;
-    description?: string;
-    file_id?: string;
-    file_path?: string;
-    reviewer_username?: string;
-  }) {
-    return this.request('/submissions/', {
+  async createSubmission(token: string, submissionData: any) {
+    return this.request('/submissions', {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify(submissionData),
     });
   }
 
-  async getAvailableReviewers() {
-    return this.request('/submissions/reviewers');
-  }
-
-  async getSubmissions(params?: {
-    page?: number;
-    per_page?: number;
-    status_filter?: string;
-  }) {
-    const searchParams = new URLSearchParams();
-    if (params?.page) searchParams.append('page', params.page.toString());
-    if (params?.per_page) searchParams.append('per_page', params.per_page.toString());
-    if (params?.status_filter) searchParams.append('status_filter', params.status_filter);
-
-    const queryString = searchParams.toString();
-    return this.request(`/submissions/?${queryString}`);
-  }
-
-  async getPendingSubmissions() {
-    return this.request('/submissions/pending');
-  }
-
-  async getSubmission(submissionId: string) {
-    return this.request(`/submissions/${submissionId}`);
-  }
-
-  async reviewSubmission(
-    submissionId: string,
-    reviewData: {
-      status: SubmissionStatus;
-      review_comments?: string;
-      review_metadata?: Record<string, any>;
-    }
-  ) {
-    return this.request(`/submissions/${submissionId}/review`, {
-      method: 'PUT',
-      body: JSON.stringify(reviewData),
+  async getSubmissions(token: string, params?: any) {
+    const queryString = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return this.request(`/submissions${queryString}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
   }
 
-  async updateSubmission(
-    submissionId: string,
-    updateData: {
-      title?: string;
-      description?: string;
-    }
-  ) {
-    return this.request(`/submissions/${submissionId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updateData),
+  async getPendingSubmissions(token: string) {
+    return this.request('/submissions/pending', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
   }
 
-  async deleteSubmission(submissionId: string) {
-    return this.request(`/submissions/${submissionId}`, {
+  async getSubmission(token: string, id: string) {
+    return this.request(`/submissions/${id}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async reviewSubmission(token: string, id: string, review: any) {
+    return this.request(`/submissions/${id}/review`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(review),
+    });
+  }
+
+  async updateSubmission(token: string, id: string, data: any) {
+    return this.request(`/submissions/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSubmission(token: string, id: string) {
+    return this.request(`/submissions/${id}`, {
       method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
   }
 
-  async getSubmissionStats() {
-    return this.request('/submissions/stats/overview');
+  async getSubmissionStats(token: string) {
+    return this.request('/submissions/stats/overview', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getAvailableReviewers(token: string) {
+    return this.request('/submissions/reviewers', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
 
   // Workspace endpoints
-  async getWorkspaceFiles(sessionId: string, directory: string = '/') {
-    return this.request(`/workspace/files?session_id=${sessionId}&directory=${encodeURIComponent(directory)}`);
+  async getWorkspaceFiles(token: string, sessionId: string, directory: string = '/') {
+    return this.request(`/workspace/files?session_id=${sessionId}&directory=${encodeURIComponent(directory)}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
 
-  async createWorkspaceFile(sessionId: string, fileData: {
-    filename: string;
-    filepath: string;
-    content: string;
-  }) {
+  async createWorkspaceFile(token: string, sessionId: string, fileData: any) {
     return this.request('/workspace/files', {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({ ...fileData, session_id: sessionId }),
     });
   }
 
-  async updateWorkspaceFile(sessionId: string, filepath: string, content: string) {
+  async updateWorkspaceFile(token: string, sessionId: string, filepath: string, content: string) {
     return this.request('/workspace/files', {
       method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({
         session_id: sessionId,
         filepath,
@@ -211,9 +278,12 @@ class ApiService {
     });
   }
 
-  async deleteWorkspaceFile(sessionId: string, filepath: string) {
+  async deleteWorkspaceFile(token: string, sessionId: string, filepath: string) {
     return this.request('/workspace/files', {
       method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({
         session_id: sessionId,
         filepath,
@@ -223,5 +293,5 @@ class ApiService {
 }
 
 // Export singleton instance
-export const apiService = new ApiService(API_BASE_URL);
+export const apiService = new ApiService();
 export default apiService; 

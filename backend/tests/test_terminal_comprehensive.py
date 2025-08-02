@@ -373,6 +373,36 @@ class TestTerminalComprehensive:
     
     @pytest.mark.asyncio
     @patch('asyncio.create_subprocess_exec')
+    async def test_python_command_relative_path_execution(self, mock_subprocess, terminal_service):
+        """Test python command executes Python files using relative paths from subdirectories."""
+        # Mock subprocess
+        mock_process = AsyncMock()
+        mock_process.communicate.return_value = (b"Hello from subdirectory\n", b"")
+        mock_process.returncode = 0
+        mock_subprocess.return_value = mock_process
+        
+        # Mock the workspace service to return content for a file in a subdirectory
+        original_get_content = terminal_service.workspace_service.get_file_content
+        
+        async def mock_get_content(session_id, filepath):
+            if filepath == "/folder/main.py":
+                return "print('Hello from subdirectory')"
+            return original_get_content(session_id, filepath)
+        
+        terminal_service.workspace_service.get_file_content = mock_get_content
+        
+        # First change to a subdirectory
+        await terminal_service.execute_command("test-session", "cd folder")
+        
+        # Then run python main.py from the subdirectory
+        result = await terminal_service.execute_command("test-session", "python main.py")
+        
+        assert result["success"] is True
+        assert result["return_code"] == 0
+        assert "Hello from subdirectory" in result["stdout"]
+    
+    @pytest.mark.asyncio
+    @patch('asyncio.create_subprocess_exec')
     async def test_python_command_inline_code(self, mock_subprocess, terminal_service):
         """Test python command executes inline code."""
         # Mock that file doesn't exist, so it should treat as inline code

@@ -74,6 +74,11 @@ const initialState = {
   },
 };
 
+// Helper function to get auth token
+const getAuthToken = (): string | null => {
+  return localStorage.getItem('authToken');
+};
+
 export const useSubmissionStore = create<SubmissionState>((set, get) => ({
   ...initialState,
 
@@ -90,29 +95,29 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
     setError(null);
 
     try {
-      const currentFilters = filters || get().filters;
-      const response = await apiService.getSubmissions(currentFilters);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return;
       }
 
-      const data = response.data as SubmissionListResponse;
+      const currentFilters = filters || get().filters;
+      const response = await apiService.getSubmissions(token, currentFilters) as SubmissionListResponse;
+      
       set({
-        submissions: data.submissions,
+        submissions: response.submissions || [],
         pagination: {
-          page: data.page,
-          per_page: data.per_page,
-          total: data.total,
-          total_pages: data.total_pages,
+          page: response.page,
+          per_page: response.per_page,
+          total: response.total,
+          total_pages: response.total_pages,
         },
-        filters: currentFilters,
+        loading: false,
+        error: null
       });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch submissions');
-    } finally {
-      setLoading(false);
+      set({ loading: false });
     }
   },
 
@@ -122,18 +127,22 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
     setError(null);
 
     try {
-      const response = await apiService.getPendingSubmissions();
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return;
       }
 
-      set({ submissions: response.data as Submission[] });
+      const response = await apiService.getPendingSubmissions(token) as { submissions: Submission[] };
+      
+      set({
+        submissions: response.submissions || [],
+        loading: false,
+        error: null
+      });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch pending submissions');
-    } finally {
-      setLoading(false);
+      set({ loading: false });
     }
   },
 
@@ -143,142 +152,111 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
     setError(null);
 
     try {
-      const response = await apiService.getSubmission(id);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return;
       }
 
-      setCurrentSubmission(response.data as Submission);
+      const response = await apiService.getSubmission(token, id) as Submission;
+      
+      setCurrentSubmission(response);
+      set({ loading: false, error: null });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch submission');
-    } finally {
-      setLoading(false);
+      set({ loading: false });
     }
   },
 
   createSubmission: async (data: SubmissionCreate) => {
-    const { setLoading, setError, fetchSubmissions } = get();
+    const { setLoading, setError } = get();
     setLoading(true);
     setError(null);
 
     try {
-      const response = await apiService.createSubmission(data);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return null;
       }
 
-      const submission = response.data as Submission;
+      const response = await apiService.createSubmission(token, data) as Submission;
       
-      // Refresh the submissions list
-      await fetchSubmissions();
-      
-      return submission;
+      set({ loading: false, error: null });
+      return response;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to create submission');
+      set({ loading: false });
       return null;
-    } finally {
-      setLoading(false);
     }
   },
 
   reviewSubmission: async (id: string, review: SubmissionReview) => {
-    const { setLoading, setError, fetchSubmissions, setCurrentSubmission } = get();
+    const { setLoading, setError } = get();
     setLoading(true);
     setError(null);
 
     try {
-      const response = await apiService.reviewSubmission(id, review);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return null;
       }
 
-      const submission = response.data as Submission;
+      const response = await apiService.reviewSubmission(token, id, review) as Submission;
       
-      // Update current submission if it's the one being reviewed
-      const { currentSubmission } = get();
-      if (currentSubmission?.id === id) {
-        setCurrentSubmission(submission);
-      }
-      
-      // Refresh the submissions list
-      await fetchSubmissions();
-      
-      return submission;
+      set({ loading: false, error: null });
+      return response;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to review submission');
+      set({ loading: false });
       return null;
-    } finally {
-      setLoading(false);
     }
   },
 
   updateSubmission: async (id: string, data: Partial<SubmissionCreate>) => {
-    const { setLoading, setError, fetchSubmissions, setCurrentSubmission } = get();
+    const { setLoading, setError } = get();
     setLoading(true);
     setError(null);
 
     try {
-      const response = await apiService.updateSubmission(id, data);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return null;
       }
 
-      const submission = response.data as Submission;
+      const response = await apiService.updateSubmission(token, id, data) as Submission;
       
-      // Update current submission if it's the one being updated
-      const { currentSubmission } = get();
-      if (currentSubmission?.id === id) {
-        setCurrentSubmission(submission);
-      }
-      
-      // Refresh the submissions list
-      await fetchSubmissions();
-      
-      return submission;
+      set({ loading: false, error: null });
+      return response;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to update submission');
+      set({ loading: false });
       return null;
-    } finally {
-      setLoading(false);
     }
   },
 
   deleteSubmission: async (id: string) => {
-    const { setLoading, setError, fetchSubmissions, setCurrentSubmission } = get();
+    const { setLoading, setError } = get();
     setLoading(true);
     setError(null);
 
     try {
-      const response = await apiService.deleteSubmission(id);
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return false;
       }
 
-      // Clear current submission if it's the one being deleted
-      const { currentSubmission } = get();
-      if (currentSubmission?.id === id) {
-        setCurrentSubmission(null);
-      }
+      await apiService.deleteSubmission(token, id);
       
-      // Refresh the submissions list
-      await fetchSubmissions();
-      
+      set({ loading: false, error: null });
       return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to delete submission');
+      set({ loading: false });
       return false;
-    } finally {
-      setLoading(false);
     }
   },
 
@@ -288,18 +266,22 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
     setError(null);
 
     try {
-      const response = await apiService.getSubmissionStats();
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return;
       }
 
-      set({ stats: response.data as SubmissionStats });
+      const response = await apiService.getSubmissionStats(token) as SubmissionStats;
+      
+      set({
+        stats: response,
+        loading: false,
+        error: null
+      });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch stats');
-    } finally {
-      setLoading(false);
+      set({ loading: false });
     }
   },
 
@@ -309,18 +291,22 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
     setError(null);
 
     try {
-      const response = await apiService.getAvailableReviewers();
-      
-      if (response.error) {
-        setError(response.error);
+      const token = getAuthToken();
+      if (!token) {
+        setError('Authentication required');
         return;
       }
 
-      set({ availableReviewers: response.data as UserSummary[] });
+      const response = await apiService.getAvailableReviewers(token) as { reviewers: UserSummary[] };
+      
+      set({
+        availableReviewers: response.reviewers || [],
+        loading: false,
+        error: null
+      });
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to fetch available reviewers');
-    } finally {
-      setLoading(false);
+      setError(error instanceof Error ? error.message : 'Failed to fetch reviewers');
+      set({ loading: false });
     }
   },
 

@@ -24,9 +24,9 @@ if __name__ == "__main__":
     print(f"🐍 Python path: {sys.path}")
     print(f"🌐 Railway domain: {os.getenv('RAILWAY_PUBLIC_DOMAIN', 'not set')}")
     
-    # Start the server
+    # Start the server using the imported app
     uvicorn.run(
-        "main:app",  # Use this file as the entry point
+        app,  # Use the imported app directly
         host="0.0.0.0",
         port=port,
         reload=False,

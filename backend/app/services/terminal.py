@@ -599,12 +599,34 @@ class TerminalService:
                 }
             
             # Check if argument is a filename that exists in the workspace
-            potential_filepath = python_arg if python_arg.startswith('/') else f"/{python_arg}"
+            # Handle relative paths based on current working directory
+            if python_arg.startswith('/'):
+                # Absolute path
+                potential_filepath = python_arg
+            else:
+                # Relative path - join with current working directory
+                if working_dir == "/":
+                    potential_filepath = f"/{python_arg}"
+                else:
+                    potential_filepath = f"{working_dir.rstrip('/')}/{python_arg}"
+            
             file_content = await self.workspace_service.get_file_content(session_id, potential_filepath)
             
             if file_content is not None:
                 # This is a file execution - run the existing file
-                file_path = os.path.join(temp_workspace, python_arg.lstrip("/"))
+                # Use the relative path for the temp workspace file
+                if python_arg.startswith('/'):
+                    file_path = os.path.join(temp_workspace, python_arg.lstrip("/"))
+                else:
+                    # For relative paths, create the file in the temp workspace maintaining the relative structure
+                    if working_dir == "/":
+                        file_path = os.path.join(temp_workspace, python_arg)
+                    else:
+                        # Create the directory structure in temp workspace
+                        relative_dir = working_dir.lstrip("/")
+                        temp_dir = os.path.join(temp_workspace, relative_dir)
+                        os.makedirs(temp_dir, exist_ok=True)
+                        file_path = os.path.join(temp_dir, python_arg)
                 
                 # Ensure the directory exists
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)

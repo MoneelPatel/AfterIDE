@@ -45,11 +45,18 @@ except Exception as e:
     print(f"⚠️  Submissions router not available: {e}")
 
 try:
-    from app.api.v1 import workspace
+    from app.api.v1.endpoints import workspace
     api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
     print("✅ Workspace router included")
 except Exception as e:
     print(f"⚠️  Workspace router not available: {e}")
+
+try:
+    from app.api.v1.endpoints import setup
+    api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
+    print("✅ Setup router included")
+except Exception as e:
+    print(f"⚠️  Setup router not available: {e}")
 
 # Add a status endpoint to show which routers are available
 @api_router.get("/status")

@@ -26,15 +26,21 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false, // Disable sourcemaps to reduce memory usage
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
           monaco: ['monaco-editor'],
           xterm: ['xterm', 'xterm-addon-fit', 'xterm-addon-web-links'],
+          ui: ['@heroicons/react', 'lucide-react', 'react-hot-toast'],
+          utils: ['axios', 'clsx', 'date-fns', 'tailwind-merge', 'zustand'],
         },
       },
     },
+    chunkSizeWarningLimit: 1000, // Increase warning limit
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom'], // Pre-bundle core dependencies
   },
 }) 

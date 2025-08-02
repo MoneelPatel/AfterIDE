@@ -1,11 +1,17 @@
 import { create } from 'zustand'
 import { updateWebSocketSessions } from '../services/websocket'
+import apiService from '../services/api'
 
 interface User {
   id: string
   username: string
   email: string
   role: 'user' | 'admin' | 'reviewer'
+}
+
+interface AuthResponse {
+  access_token: string
+  user?: User
 }
 
 interface AuthState {
@@ -25,32 +31,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   login: async (username: string, password: string) => {
     try {
-      const response = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
+      const data = await apiService.login(username, password) as AuthResponse
+      
+      localStorage.setItem('authToken', data.access_token)
+      set({ 
+        isAuthenticated: true, 
+        user: data.user || { id: '1', username, email: '', role: 'user' as const }, 
+        token: data.access_token 
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        localStorage.setItem('authToken', data.access_token)
-        set({ 
-          isAuthenticated: true, 
-          user: data.user || { id: '1', username, email: '', role: 'user' as const }, 
-          token: data.access_token 
-        })
-        
-        // Update WebSocket sessions with new user session
-        console.log('Login successful, updating WebSocket sessions');
-        updateWebSocketSessions()
-        
-        return true
-      } else {
-        console.error('Login failed:', response.status, response.statusText)
-        return false
-      }
+      
+      // Update WebSocket sessions with new user session
+      console.log('Login successful, updating WebSocket sessions');
+      updateWebSocketSessions()
+      
+      return true
     } catch (error) {
       console.error('Login error:', error)
       return false
@@ -58,56 +52,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   register: async (username: string, email: string, password: string) => {
     try {
-      const response = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          username, 
-          email, 
-          password, 
-          confirm_password: password 
-        }),
+      const data = await apiService.register(username, email, password) as AuthResponse
+      
+      localStorage.setItem('authToken', data.access_token)
+      set({ 
+        isAuthenticated: true, 
+        user: data.user || { id: '1', username, email, role: 'user' as const }, 
+        token: data.access_token 
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log('Registration successful:', data)
-        return true
-      } else {
-        const errorData = await response.json()
-        console.error('Registration failed:', response.status, errorData)
-        return false
-      }
+      
+      // Update WebSocket sessions with new user session
+      console.log('Registration successful, updating WebSocket sessions');
+      updateWebSocketSessions()
+      
+      return true
     } catch (error) {
       console.error('Registration error:', error)
       return false
     }
   },
   logout: () => {
-    console.log('Logging out, updating WebSocket sessions');
+    const { token } = get()
+    
+    // Call logout API if we have a token
+    if (token) {
+      apiService.logout(token).catch(error => {
+        console.error('Logout API call failed:', error)
+      })
+    }
+    
     localStorage.removeItem('authToken')
     set({ isAuthenticated: false, user: null, token: null })
     
-    // Update WebSocket sessions to use default session
+    // Update WebSocket sessions
     updateWebSocketSessions()
   },
   setToken: (token: string) => {
-    set({ token })
+    localStorage.setItem('authToken', token)
+    set({ token, isAuthenticated: true })
   },
   initialize: () => {
     const token = localStorage.getItem('authToken')
     if (token) {
-      console.log('Initializing auth store with existing token');
-      set({ 
-        isAuthenticated: true, 
-        token,
-        user: { id: '1', username: 'admin', email: 'admin@example.com', role: 'admin' as const }
-      })
-      
-      // Update WebSocket sessions with stored token
-      updateWebSocketSessions()
+      // Try to get current user info
+      apiService.getCurrentUser(token)
+        .then((data: any) => {
+          set({ 
+            isAuthenticated: true, 
+            user: data.user || { id: '1', username: 'user', email: '', role: 'user' as const }, 
+            token 
+          })
+          updateWebSocketSessions()
+        })
+        .catch(error => {
+          console.error('Failed to get current user:', error)
+          // Token might be invalid, clear it
+          localStorage.removeItem('authToken')
+          set({ isAuthenticated: false, user: null, token: null })
+        })
     }
-  },
+  }
 })) 
