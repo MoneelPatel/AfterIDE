@@ -1,0 +1,13 @@
+{
+  "name": "afteride-backend",
+  "version": "1.0.0",
+  "description": "AfterIDE Backend API",
+  "main": "main.py",
+  "scripts": {
+    "start": "python main.py",
+    "dev": "python main.py"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 

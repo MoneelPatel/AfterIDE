@@ -8,4 +8,7 @@ cmds = [
 ]
 
 [start]
-cmd = "python main.py" 
+cmd = "python start.py"
+
+[variables]
+PYTHONPATH = "/app" 
