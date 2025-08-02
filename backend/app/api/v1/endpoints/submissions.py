@@ -80,20 +80,34 @@ def _get_submission_response(submission: Submission) -> SubmissionResponse:
         file=_get_file_summary(submission.file)
     )
 
-@router.get("/file-by-path/{session_id}/{filepath:path}")
+@router.get("/file-by-path/{filepath:path}")
 async def get_file_by_path(
-    session_id: str,
     filepath: str,
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
 ):
     """Get file information by path for submission creation."""
     try:
-        # Query file by session_id and filepath
+        # Normalize the filepath to avoid double slashes
+        normalized_filepath = f"/{filepath.lstrip('/')}"
+        
+        # Query file by filepath (assuming files belong to the current user's sessions)
+        # First, get the user's sessions
+        session_query = select(Session).where(Session.user_id == str(current_user.id))
+        session_result = await db.execute(session_query)
+        user_sessions = session_result.scalars().all()
+        
+        if not user_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No sessions found for user"
+            )
+        
+        # Search for the file in any of the user's sessions
         file_query = select(File).where(
             and_(
-                File.session_id == session_id,
-                File.filepath == f"/{filepath}"
+                File.session_id.in_([str(session.id) for session in user_sessions]),
+                File.filepath == normalized_filepath
             )
         )
         
@@ -103,7 +117,7 @@ async def get_file_by_path(
         if not file:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found"
+                detail=f"File not found: {normalized_filepath}"
             )
         
         return {
@@ -136,20 +150,24 @@ async def create_submission_new(
                 detail="file_id is required for submissions"
             )
         
-        # Verify the file exists and belongs to the user
+        # Verify the file exists and belongs to the user's session
         file_query = select(File).where(
-            and_(
-                File.id == normalize_uuid_string(submission_data.file_id),
-                File.user_id == str(current_user.id)
-            )
-        )
+            File.id == normalize_uuid_string(submission_data.file_id)
+        ).options(joinedload(File.session))
         file_result = await db.execute(file_query)
         file = file_result.scalar_one_or_none()
         
         if not file:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found or access denied. Please save your file before submitting."
+                detail="File not found. Please save your file before submitting."
+            )
+        
+        # Check if the file belongs to the current user's session
+        if str(file.session.user_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You can only submit files from your own sessions."
             )
         
         # Create submission

@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { apiService } from '../services/api';
+import { getUserSessionId } from '../utils/session';
 import {
   Submission,
   SubmissionCreate,
@@ -183,11 +184,8 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
       // If data has file_path instead of file_id, convert it
       let submissionData = data;
       if ('file_path' in data && !data.file_id) {
-        // Get the current session ID (you might need to get this from your session store)
-        const sessionId = localStorage.getItem('currentSessionId') || 'default-session';
-        
         // Get file information by path
-        const fileInfo = await apiService.getFileByPath(token, sessionId, data.file_path as string) as {
+        const fileInfo = await apiService.getFileByPath(token, data.file_path as string) as {
           file_id: string;
           filename: string;
           filepath: string;

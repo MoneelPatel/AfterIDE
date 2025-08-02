@@ -61,10 +61,11 @@ class ApiService {
 
   constructor() {
     console.log('🔍 ApiService constructor called');
-    this.version = Date.now().toString(); // Force new instance
+    this.version = `v${Date.now()}`; // Force new instance with timestamp
     this.instanceId = Math.random().toString(36).substr(2, 9); // Unique instance ID
     console.log('🔍 ApiService version:', this.version);
     console.log('🔍 ApiService instance ID:', this.instanceId);
+    console.log('🔍 ApiService getFileByPath method signature:', this.getFileByPath.toString());
   }
 
   private getBaseUrl(): string {
@@ -323,8 +324,13 @@ class ApiService {
     });
   }
 
-  async getFileByPath(token: string, sessionId: string, filepath: string) {
-    return this.request(`/submissions/file-by-path/${sessionId}/${encodeURIComponent(filepath)}`, {
+  async getFileByPath(token: string, filepath: string) {
+    // Add cache-busting parameter to force new endpoint usage
+    const cacheBuster = Date.now();
+    const endpoint = `/submissions/file-by-path/${encodeURIComponent(filepath)}?cb=${cacheBuster}`;
+    console.log('🔍 getFileByPath called with:', { token: token ? 'present' : 'missing', filepath, endpoint });
+    console.log('🔍 Full URL will be:', `${this.getBaseUrl()}${endpoint}`);
+    return this.request(endpoint, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
