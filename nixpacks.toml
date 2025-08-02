@@ -4,8 +4,8 @@ nixPkgs = ["python311", "gcc", "postgresql_16.dev"]
 [phases.install]
 cmds = [
   "cd backend",
-  "pip install --upgrade pip",
-  "pip install -r requirements.txt"
+  "python -m pip install --upgrade pip",
+  "python -m pip install -r requirements.txt"
 ]
 
 [start]
