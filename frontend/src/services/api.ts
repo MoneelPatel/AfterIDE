@@ -48,6 +48,11 @@ const getApiBaseUrl = (): string => {
   return 'https://sad-chess-production.up.railway.app/api/v1';
 };
 
+// Utility to force HTTPS for all API requests to sad-chess-production
+function forceHttps(url: string): string {
+  return url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
+}
+
 // Create API service with proper base URL
 class ApiService {
   private version: string;
@@ -77,7 +82,8 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = this.getFullUrl(endpoint);
+    let url = this.getFullUrl(endpoint);
+    url = forceHttps(url); // Ensure HTTPS for all requests
     console.log('🔍 API request to:', url);
     console.log('🔍 Base URL:', this.getBaseUrl());
     console.log('🔍 Endpoint:', endpoint);

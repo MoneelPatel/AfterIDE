@@ -10,6 +10,29 @@
     <title>AfterIDE - Web-Based Integrated Development Environment</title>
     <meta name="description" content="A secure, web-based IDE featuring real-time code execution, terminal emulation, and collaborative review capabilities." />
     
+    <!-- Force HTTPS for all API requests -->
+    <script>
+      // Patch fetch immediately
+      const originalFetch = window.fetch;
+      window.fetch = function(input, init) {
+        if (typeof input === 'string' && input.startsWith('http://sad-chess-production.up.railway.app')) {
+          input = input.replace('http://', 'https://');
+        }
+        return originalFetch(input, init);
+      };
+      
+      // Patch XMLHttpRequest immediately
+      const originalXHROpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
+        if (typeof url === 'string' && url.startsWith('http://sad-chess-production.up.railway.app')) {
+          url = url.replace('http://', 'https://');
+        }
+        return originalXHROpen.call(this, method, url, async, username, password);
+      };
+      
+      console.log('🔒 Early HTTPS enforcement patches applied');
+    </script>
+    
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
