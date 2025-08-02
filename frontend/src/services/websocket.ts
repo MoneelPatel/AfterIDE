@@ -60,6 +60,13 @@ class WebSocketClient {
       return;
     }
 
+    // Don't attempt to connect if there's no token (user is not authenticated)
+    if (!this.config.token) {
+      console.log('No token available, skipping WebSocket connection');
+      this.notifyConnectionStatus('disconnected');
+      return;
+    }
+
     this.isConnecting = true;
     this.notifyConnectionStatus('connecting');
 
@@ -198,10 +205,15 @@ class WebSocketClient {
    * Update authentication token
    */
   updateToken(token: string): void {
-    // Only update if the token has actually changed
-    if (this.config.token !== token) {
-      console.log(`Updating token from ${this.config.token ? '***' : 'null'} to ${token ? '***' : 'null'}`);
-      this.config.token = token;
+    const hadToken = !!this.config.token;
+    const hasToken = !!token;
+    
+    this.config.token = token;
+    
+    // If we had a token but now don't, disconnect
+    if (hadToken && !hasToken) {
+      console.log('Token cleared, disconnecting WebSocket');
+      this.disconnect();
     }
   }
 
@@ -302,6 +314,8 @@ class WebSocketClient {
    */
   private handleError(event: Event): void {
     console.error('WebSocket error:', event);
+    this.isConnecting = false;
+    this.isConnected = false;
     this.notifyConnectionStatus('error');
   }
 
@@ -311,6 +325,12 @@ class WebSocketClient {
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
+      return;
+    }
+
+    // Don't attempt to reconnect if there's no token (user is not authenticated)
+    if (!this.config.token) {
+      console.log('No token available, skipping reconnection attempt');
       return;
     }
 
@@ -448,9 +468,9 @@ export const updateWebSocketSessions = () => {
   const newSessionId = getUserSessionId();
   const newToken = getAuthToken();
   
-  console.log('updateWebSocketSessions called with session:', newSessionId);
+  console.log('updateWebSocketSessions called with session:', newSessionId, 'token:', newToken ? 'present' : 'none');
   
-  // Only update if the session ID or token has actually changed
+  // Get current connection status
   const terminalStatus = terminalWebSocket.getConnectionStatus();
   const filesStatus = filesWebSocket.getConnectionStatus();
   
@@ -460,6 +480,18 @@ export const updateWebSocketSessions = () => {
   
   filesWebSocket.updateSessionId(newSessionId);
   filesWebSocket.updateToken(newToken || '');
+  
+  // If user has logged out (no token), disconnect and don't reconnect
+  if (!newToken) {
+    console.log('No token found, disconnecting WebSockets');
+    if (terminalStatus.isConnected) {
+      terminalWebSocket.disconnect();
+    }
+    if (filesStatus.isConnected) {
+      filesWebSocket.disconnect();
+    }
+    return;
+  }
   
   // Only reconnect if currently connected and session/token changed
   if (terminalStatus.isConnected) {
