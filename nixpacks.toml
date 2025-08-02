@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["python311", "gcc", "postgresql_16.dev", "pip"]
+
+[phases.install]
+cmds = [
+  "cd backend",
+  "pip install --upgrade pip",
+  "pip install -r requirements.txt"
+]
+
+[start]
+cmd = "cd backend && python start.py"
+
+[variables]
+PYTHONPATH = "/app/backend" 
