@@ -2,7 +2,7 @@
 # All necessary packages for full AfterIDE functionality
 
 # FastAPI and ASGI
-fastapi==0.104.1
+fastapi[all]==0.104.1
 uvicorn[standard]==0.24.0
 websockets==12.0
 

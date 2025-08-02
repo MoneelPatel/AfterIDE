@@ -2,10 +2,10 @@
   "name": "afteride-backend",
   "version": "1.0.0",
   "description": "AfterIDE Backend API",
-  "main": "main.py",
+  "main": "start.py",
   "scripts": {
-    "start": "python main.py",
-    "dev": "python main.py"
+    "start": "python start.py",
+    "dev": "python start.py"
   },
   "engines": {
     "node": ">=18.0.0"

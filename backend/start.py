@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import and run the main application
 if __name__ == "__main__":
-    from main import app
+    from app.main import app
     import uvicorn
     
     # Get port from environment variable
