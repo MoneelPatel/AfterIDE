@@ -180,7 +180,28 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
         return null;
       }
 
-      const response = await apiService.createSubmission(token, data) as Submission;
+      // If data has file_path instead of file_id, convert it
+      let submissionData = data;
+      if ('file_path' in data && !data.file_id) {
+        // Get the current session ID (you might need to get this from your session store)
+        const sessionId = localStorage.getItem('currentSessionId') || 'default-session';
+        
+        // Get file information by path
+        const fileInfo = await apiService.getFileByPath(token, sessionId, data.file_path as string) as {
+          file_id: string;
+          filename: string;
+          filepath: string;
+          language: string;
+        };
+        
+        // Create new submission data with file_id
+        submissionData = {
+          ...data,
+          file_id: fileInfo.file_id
+        };
+      }
+
+      const response = await apiService.createSubmission(token, submissionData) as Submission;
       
       set({ loading: false, error: null });
       return response;

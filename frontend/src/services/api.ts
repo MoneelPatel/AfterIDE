@@ -239,7 +239,7 @@ class ApiService {
 
   // Submission endpoints
   async createSubmission(token: string, submissionData: any) {
-    return this.request('/submissions', {
+    return this.request('/submissions/create', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -255,7 +255,7 @@ class ApiService {
     ) as Record<string, string> : {};
     
     const queryString = Object.keys(cleanParams).length > 0 ? `?${new URLSearchParams(cleanParams).toString()}` : '';
-    return this.request(`/submissions/list${queryString}`, {
+    return this.request(`/submissions/all${queryString}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -317,6 +317,14 @@ class ApiService {
 
   async getAvailableReviewers(token: string) {
     return this.request('/submissions/reviewers', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getFileByPath(token: string, sessionId: string, filepath: string) {
+    return this.request(`/submissions/file-by-path/${sessionId}/${encodeURIComponent(filepath)}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },

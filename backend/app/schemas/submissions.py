@@ -16,7 +16,7 @@ class SubmissionBase(BaseModel):
     """Base submission model."""
     title: str = Field(..., min_length=1, max_length=200, description="Submission title")
     description: Optional[str] = Field(None, description="Submission description")
-    file_id: Optional[str] = Field(None, description="ID of the file being submitted")
+    file_id: str = Field(..., description="ID of the file being submitted")
     file_path: Optional[str] = Field(None, description="Path of the file being submitted (alternative to file_id)")
 
 
