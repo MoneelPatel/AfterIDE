@@ -24,22 +24,38 @@ If you're experiencing authentication issues when trying to access the review pa
 2. **Run this command in the console:**
    ```javascript
    localStorage.removeItem('authToken');
-   window.location.reload();
+   window.location.href = '/login';
    ```
 
 3. **Log in again** with your credentials
+
+## Issue: "Mixed Content" errors
+
+If you see errors about mixed content (HTTP vs HTTPS), this is automatically handled by the application. The system will:
+
+1. **Automatically convert HTTP URLs to HTTPS** when needed
+2. **Show a warning in the console** if mixed content is detected
+3. **Continue to work normally** after the conversion
+
+### If you continue to see mixed content errors:
+
+1. **Clear your browser cache** and reload the page
+2. **Check your Railway environment variables** to ensure `VITE_API_URL` is set to HTTPS
+3. **Contact support** if the issue persists
 
 ### Common Causes
 
 - **Token Expiration:** Authentication tokens expire after 7 days for security
 - **Browser Storage Issues:** Local storage might be corrupted or cleared
 - **Network Issues:** Temporary connectivity problems with the backend
+- **Environment Configuration:** Incorrect API URL configuration in production
 
 ### Prevention
 
 - **Regular Logins:** Log in regularly to keep your token fresh
 - **Stable Connection:** Ensure you have a stable internet connection
 - **Browser Updates:** Keep your browser updated
+- **Clear Cache:** Periodically clear your browser cache
 
 ### Still Having Issues?
 

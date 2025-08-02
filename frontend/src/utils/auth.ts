@@ -1,65 +1,50 @@
 /**
  * AfterIDE - Authentication Utilities
  * 
- * Utility functions for managing authentication tokens and user sessions.
+ * Utility functions for managing authentication state.
  */
 
 /**
- * Clear all authentication data and force re-login
+ * Clear all authentication data and redirect to login
  */
 export const clearAuthData = (): void => {
-  // Clear token from localStorage
-  localStorage.removeItem('authToken')
+  // Remove token from localStorage
+  localStorage.removeItem('authToken');
   
   // Clear any other auth-related data
-  sessionStorage.clear()
+  sessionStorage.removeItem('authToken');
   
-  // Force page reload to reset all state
-  window.location.reload()
-}
+  // Redirect to login page
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+};
 
 /**
- * Check if the current token is valid by making a test request
+ * Check if user is authenticated
  */
-export const validateToken = async (): Promise<boolean> => {
-  const token = localStorage.getItem('authToken')
-  
-  if (!token) {
-    return false
-  }
-  
-  try {
-    const response = await fetch('/api/v1/auth/me', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
-      }
-    })
-    
-    return response.ok
-  } catch (error) {
-    console.error('Token validation failed:', error)
-    return false
-  }
-}
+export const isAuthenticated = (): boolean => {
+  const token = localStorage.getItem('authToken');
+  return !!token;
+};
 
 /**
- * Get the current authentication token
+ * Get authentication token
  */
 export const getAuthToken = (): string | null => {
-  return localStorage.getItem('authToken')
-}
+  return localStorage.getItem('authToken');
+};
 
 /**
- * Set the authentication token
+ * Set authentication token
  */
 export const setAuthToken = (token: string): void => {
-  localStorage.setItem('authToken', token)
-}
+  localStorage.setItem('authToken', token);
+};
 
 /**
- * Remove the authentication token
+ * Remove authentication token
  */
 export const removeAuthToken = (): void => {
-  localStorage.removeItem('authToken')
-} 
+  localStorage.removeItem('authToken');
+}; 

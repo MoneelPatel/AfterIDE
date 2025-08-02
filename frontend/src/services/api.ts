@@ -6,42 +6,69 @@
 
 // Get the API base URL based on environment
 const getApiBaseUrl = (): string => {
+  console.log('🔍 getApiBaseUrl called');
+  console.log('🔍 VITE_API_URL from env:', import.meta.env.VITE_API_URL);
+  console.log('🔍 window.location.protocol:', window.location.protocol);
+  console.log('🔍 window.location.hostname:', window.location.hostname);
+  console.log('🔍 import.meta.env.DEV:', import.meta.env.DEV);
+  
   // Check if we have a production API URL configured
   const apiBaseUrl = import.meta.env.VITE_API_URL;
   
   if (apiBaseUrl) {
-    // Use the configured API URL for production
+    console.log('🔍 Using VITE_API_URL:', apiBaseUrl);
+    // Ensure HTTPS is used in production
+    if (window.location.protocol === 'https:' && apiBaseUrl.startsWith('http://')) {
+      console.warn('Mixed content detected: Converting HTTP API URL to HTTPS');
+      const httpsUrl = apiBaseUrl.replace('http://', 'https://');
+      console.log('🔍 Converted to HTTPS:', httpsUrl);
+      return httpsUrl;
+    }
+    console.log('🔍 Returning apiBaseUrl as-is:', apiBaseUrl);
     return apiBaseUrl;
   }
   
   // Check if we're running on Railway (production)
   if (window.location.hostname.includes('railway.app')) {
+    console.log('🔍 Running on Railway, using hardcoded HTTPS URL');
     // Use the backend Railway URL for API calls - ensure HTTPS
     return 'https://sad-chess-production.up.railway.app/api/v1';
   }
   
   // Check if we're in development mode
   if (import.meta.env.DEV) {
+    console.log('🔍 Development mode, using relative URL');
     // In development, use relative URLs (will be proxied by Vite)
     return '/api/v1';
   }
   
   // Fallback for production without environment variable
+  console.log('🔍 Fallback: using hardcoded HTTPS URL');
   // Use the backend Railway URL as default - ensure HTTPS
   return 'https://sad-chess-production.up.railway.app/api/v1';
 };
 
 // Create API service with proper base URL
 class ApiService {
-  private baseUrl: string;
+  private version: string;
+  private instanceId: string;
 
   constructor() {
-    this.baseUrl = getApiBaseUrl();
+    console.log('🔍 ApiService constructor called');
+    this.version = Date.now().toString(); // Force new instance
+    this.instanceId = Math.random().toString(36).substr(2, 9); // Unique instance ID
+    console.log('🔍 ApiService version:', this.version);
+    console.log('🔍 ApiService instance ID:', this.instanceId);
+  }
+
+  private getBaseUrl(): string {
+    return getApiBaseUrl();
   }
 
   private getFullUrl(endpoint: string): string {
-    if (this.baseUrl) {
-      return `${this.baseUrl}${endpoint}`;
+    const baseUrl = this.getBaseUrl();
+    if (baseUrl) {
+      return `${baseUrl}${endpoint}`;
     }
     return endpoint;
   }
@@ -51,11 +78,20 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<T> {
     const url = this.getFullUrl(endpoint);
+    console.log('🔍 API request to:', url);
+    console.log('🔍 Base URL:', this.getBaseUrl());
+    console.log('🔍 Endpoint:', endpoint);
+    console.log('🔍 Instance ID:', this.instanceId);
     
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Request-ID': Date.now().toString(), // Cache busting
+        'X-Instance-ID': this.instanceId, // Track which instance made the request
         ...options.headers,
       },
     });
@@ -63,13 +99,34 @@ class ApiService {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API request failed:', response.status, errorText);
+      console.error('Request URL:', url);
+      console.error('Request headers:', options.headers);
       
       // Handle 401 Unauthorized errors globally
       if (response.status === 401) {
         console.warn('Authentication failed, clearing invalid token');
-        localStorage.removeItem('authToken');
-        // Force page reload to redirect to login
-        window.location.reload();
+        console.warn('Current pathname:', window.location.pathname);
+        
+        // Check if we've already redirected to prevent infinite loops
+        const hasRedirected = sessionStorage.getItem('auth_redirected');
+        
+        // Only clear token and redirect if we're not already on the login page and haven't redirected yet
+        if (window.location.pathname !== '/login' && !hasRedirected) {
+          console.warn('Redirecting to login page...');
+          sessionStorage.setItem('auth_redirected', 'true');
+          localStorage.removeItem('authToken');
+          
+          // Show user-friendly error message
+          const errorMessage = 'Your session has expired. Please log in again.';
+          
+          // Force page reload to redirect to login
+          alert(errorMessage);
+          window.location.href = '/login';
+        } else {
+          console.warn('Already on login page or already redirected, not redirecting again');
+        }
+        
+        throw new Error('Authentication failed: Invalid token');
       }
       
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
@@ -303,4 +360,4 @@ class ApiService {
 
 // Export singleton instance
 export const apiService = new ApiService();
-export default apiService; 
+export default apiService;

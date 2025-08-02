@@ -29,6 +29,10 @@ export default defineConfig({
     sourcemap: false, // Disable sourcemaps to reduce memory usage
     rollupOptions: {
       output: {
+        // Add cache-busting hash to file names
+        entryFileNames: `assets/[name]-[hash].js`,
+        chunkFileNames: `assets/[name]-[hash].js`,
+        assetFileNames: `assets/[name]-[hash].[ext]`,
         manualChunks: {
           vendor: ['react', 'react-dom'],
           monaco: ['monaco-editor'],

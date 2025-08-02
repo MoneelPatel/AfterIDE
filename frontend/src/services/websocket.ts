@@ -1,7 +1,7 @@
 /**
- * AfterIDE - WebSocket Client Service
+ * AfterIDE - WebSocket Service
  * 
- * Manages WebSocket connections for real-time terminal and file synchronization.
+ * WebSocket client for real-time communication with the backend.
  */
 
 export interface WebSocketMessage {
@@ -428,61 +428,22 @@ const getUserSessionId = async (): Promise<string> => {
   }
   
   try {
-    console.log('Fetching session ID from backend...');
+    console.log('Generating session ID from token...');
     
-    // Build the URL properly for different environments
-    let url = '/api/v1/sessions/current';
-    if (typeof window !== 'undefined' && window.location) {
-      // In browser environment, use relative URL
-      url = '/api/v1/sessions/current';
-    } else {
-      // In test environment, use a mock URL
-      url = 'http://localhost:8000/api/v1/sessions/current';
+    // Generate a session ID based on the token hash
+    let hash = 0;
+    for (let i = 0; i < token.length; i++) {
+      const char = token.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
     }
+    const sessionId = `user-${Math.abs(hash)}`;
     
-    // Get the actual session ID from the backend
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (response.ok) {
-      // Check if the response is actually JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.warn('Backend returned non-JSON response, server may not be running');
-        return 'default-session';
-      }
-      
-      const data = await response.json();
-      const sessionId = data.session_id || 'default-session';
-      console.log('Successfully fetched session ID from backend:', sessionId);
-      return sessionId;
-    } else if (response.status === 401) {
-      console.warn('Authentication failed when fetching session ID, user may need to re-authenticate');
-      // Clear the invalid token
-      localStorage.removeItem('authToken');
-      return 'default-session';
-    } else {
-      console.warn('Failed to get session ID from backend, using fallback. Status:', response.status);
-      return 'default-session';
-    }
+    console.log('✅ Generated session ID:', sessionId);
+    return sessionId;
   } catch (error) {
-    console.error('Error fetching session ID:', error);
-    
-    // Handle specific error types
-    if (error instanceof TypeError && error.message.includes('Invalid URL')) {
-      console.warn('Invalid URL in fetch, clearing token and using default session');
-      localStorage.removeItem('authToken');
-    } else if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
-      console.warn('Backend returned invalid JSON (possibly HTML), server may not be running');
-      // Don't clear the token in this case, as it might be a temporary server issue
-    } else if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.warn('Network error when fetching session ID, backend may not be running');
-    }
-    
+    console.error('Error generating session ID:', error);
+    console.warn('⚠️ Using fallback session ID');
     return 'default-session';
   }
 };

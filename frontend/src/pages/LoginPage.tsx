@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useTheme } from '../contexts/ThemeContext'
 
@@ -12,8 +13,17 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
-  const { login, register } = useAuthStore()
+  const { login, register, isAuthenticated } = useAuthStore()
   const { theme, toggleTheme } = useTheme()
+  const navigate = useNavigate()
+
+  // Redirect to home page if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log('🔄 User is authenticated, redirecting to home page');
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,8 +33,13 @@ const LoginPage: React.FC = () => {
 
     try {
       if (isLogin) {
+        console.log('🔄 Attempting login...');
         const success = await login(username, password)
-        if (!success) {
+        if (success) {
+          console.log('✅ Login successful, should redirect automatically');
+          setSuccess('Login successful! Redirecting...');
+        } else {
+          console.log('❌ Login failed');
           setError('Invalid username or password')
         }
       } else {
@@ -47,6 +62,7 @@ const LoginPage: React.FC = () => {
         }
       }
     } catch (err) {
+      console.error('❌ Login/register error:', err);
       setError('Network error - make sure the backend is running')
     } finally {
       setIsLoading(false)

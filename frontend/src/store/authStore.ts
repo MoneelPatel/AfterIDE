@@ -40,17 +40,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   
   login: async (username: string, password: string) => {
     try {
-      const data = await apiService.login(username, password) as AuthResponse;
+      console.log('🔐 Attempting login for user:', username);
+      const data = await apiService.login(username, password) as any;
+      
+      console.log('✅ Login API response:', { 
+        hasToken: !!data.access_token, 
+        hasUser: !!data.user,
+        userData: data.user 
+      });
+      
+      // Clear any auth redirect flags
+      sessionStorage.removeItem('auth_redirected');
       
       // Set authentication state first
-      set({ 
+      const authState = {
         isAuthenticated: true, 
         user: data.user || { id: '1', username, email: '', role: 'user' as const }, 
         token: data.access_token 
-      });
+      };
+      
+      console.log('🔧 Setting auth state:', authState);
+      set(authState);
       
       // Store token in localStorage
       localStorage.setItem('authToken', data.access_token);
+      console.log('💾 Token stored in localStorage');
       
       // Update WebSocket sessions with new user session after a small delay
       // to ensure the authentication state is properly set
@@ -63,9 +77,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       }, 100);
       
+      console.log('✅ Login completed successfully');
       return true;
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return false;
     }
   },
@@ -144,9 +159,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         })
         .catch(error => {
           console.error('Failed to get current user:', error);
-          // Token might be invalid, clear it
-          localStorage.removeItem('authToken');
-          set({ isAuthenticated: false, user: null, token: null });
+          // Only clear token if it's a 401 error (invalid token)
+          // Don't clear for network errors or other issues
+          if (error.message && error.message.includes('401')) {
+            console.log('Invalid token detected, clearing authentication');
+            localStorage.removeItem('authToken');
+            set({ isAuthenticated: false, user: null, token: null });
+          } else {
+            console.log('Network error or other issue, keeping token for now');
+            // Keep the token but mark as not authenticated
+            set({ isAuthenticated: false, user: null, token });
+          }
         });
     }
   }
