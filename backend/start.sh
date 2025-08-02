@@ -1,27 +1,21 @@
 #!/bin/bash
 
-# AfterIDE Backend Startup Script
-# This script ensures the application starts correctly in Railway
-
-set -e
-
+# AfterIDE Railway Start Script
 echo "🚀 Starting AfterIDE Backend..."
 
-# Set Python path to include current directory
+# Set Python path
 export PYTHONPATH=/app
 
-# Create necessary directories
-mkdir -p /tmp/afteride
-
-# Check if we're in the right directory
-if [ ! -f "app/main.py" ]; then
-    echo "❌ Error: app/main.py not found. Current directory: $(pwd)"
-    echo "📁 Contents of current directory:"
-    ls -la
+# Check if main.py exists
+if [ ! -f "main.py" ]; then
+    echo "❌ Error: main.py not found!"
     exit 1
 fi
 
-echo "✅ Found app/main.py, starting uvicorn..."
-
 # Start the application
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} 
+echo "📁 Working directory: $(pwd)"
+echo "🐍 Python path: $PYTHONPATH"
+echo "🌐 Port: $PORT"
+
+# Run the application
+exec python main.py 
