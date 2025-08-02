@@ -30,8 +30,9 @@ const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   const { reviewSubmission, error, clearError } = useSubmissionStore();
   const { user } = useAuthStore();
 
-  const isReviewer = user?.role === 'reviewer' || user?.role === 'admin';
-  const canReview = isReviewer && submission.status === SubmissionStatus.PENDING;
+  // Check if current user can review this submission
+  const canReview = submission.status === SubmissionStatus.PENDING && 
+                   (user?.role === 'admin' || user?.id === submission.reviewer_id);
   const isAuthor = user?.id === submission.user_id;
 
   useEffect(() => {
@@ -146,12 +147,12 @@ const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
                       <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Language</dt>
                       <dd className="text-sm text-gray-900 dark:text-white">{submission.file.language || 'Unknown'}</dd>
                     </div>
-                    {submission.reviewer && (
-                      <div>
-                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned Reviewer</dt>
-                        <dd className="text-sm text-gray-900 dark:text-white">{submission.reviewer.username}</dd>
-                      </div>
-                    )}
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned Reviewer</dt>
+                      <dd className="text-sm text-gray-900 dark:text-white">
+                        {submission.reviewer ? submission.reviewer.username : 'No reviewer assigned'}
+                      </dd>
+                    </div>
                     {submission.reviewer && submission.reviewed_at && (
                       <div>
                         <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed by</dt>

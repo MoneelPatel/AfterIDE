@@ -240,7 +240,7 @@ class ApiService {
 
   // Submission endpoints
   async createSubmission(token: string, submissionData: any) {
-    return this.request('/submissions/create', {
+    return this.request('/submissions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

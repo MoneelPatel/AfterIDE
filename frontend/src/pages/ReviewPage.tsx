@@ -19,7 +19,8 @@ const ReviewPage: React.FC = () => {
   const { user } = useAuthStore();
   const { fetchSubmissions, fetchPendingSubmissions, fetchStats, stats } = useSubmissionStore();
 
-  const isReviewer = user?.role === 'reviewer' || user?.role === 'admin';
+  // Any user can see pending submissions if they have any assigned to them
+  const canSeePending = true;
 
   useEffect(() => {
     // Load initial data
@@ -63,7 +64,7 @@ const ReviewPage: React.FC = () => {
           Code Review Dashboard
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          {isReviewer 
+          {user?.role === 'reviewer' || user?.role === 'admin' 
             ? 'Review submitted code and provide feedback to developers.'
             : 'Track your code submissions and review status.'
           }
@@ -89,7 +90,7 @@ const ReviewPage: React.FC = () => {
             >
               All Submissions
             </button>
-            {isReviewer && (
+            {canSeePending && (
               <button
                 onClick={() => handleTabChange('pending')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${

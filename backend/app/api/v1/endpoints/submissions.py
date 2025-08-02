@@ -124,9 +124,11 @@ async def get_file_by_path(
             "file_id": str(file.id),
             "filename": file.filename,
             "filepath": file.filepath,
-            "language": file.language
+            "language": file.language,
+            "session_id": str(file.session_id)
         }
     except HTTPException:
+        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
         print(f"Error in get_file_by_path: {str(e)}")
@@ -135,13 +137,13 @@ async def get_file_by_path(
             detail="Failed to get file information"
         )
 
-@router.post("/create", response_model=SubmissionResponse, status_code=status.HTTP_201_CREATED)
-async def create_submission_new(
+@router.post("/", response_model=SubmissionResponse, status_code=status.HTTP_201_CREATED)
+async def create_submission(
     submission_data: SubmissionCreate,
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new code submission for review (new endpoint)."""
+    """Create a new code submission for review."""
     try:
         # Validate that file_id is provided
         if not submission_data.file_id:
@@ -170,6 +172,31 @@ async def create_submission_new(
                 detail="Access denied. You can only submit files from your own sessions."
             )
         
+        # Handle reviewer assignment if provided
+        reviewer_id = None
+        if submission_data.reviewer_username:
+            # Find the reviewer by username (any user can be a reviewer)
+            reviewer_query = select(User).where(
+                User.username == submission_data.reviewer_username
+            )
+            reviewer_result = await db.execute(reviewer_query)
+            reviewer = reviewer_result.scalar_one_or_none()
+            
+            if not reviewer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Reviewer '{submission_data.reviewer_username}' not found"
+                )
+            reviewer_id = str(reviewer.id)
+        else:
+            # If no reviewer specified, automatically assign admin
+            admin_query = select(User).where(User.role == UserRole.ADMIN)
+            admin_result = await db.execute(admin_query)
+            admin = admin_result.scalar_one_or_none()
+            
+            if admin:
+                reviewer_id = str(admin.id)
+        
         # Create submission
         submission = Submission(
             id=str(uuid.uuid4()),
@@ -177,6 +204,7 @@ async def create_submission_new(
             description=submission_data.description,
             file_id=submission_data.file_id,
             user_id=str(current_user.id),
+            reviewer_id=reviewer_id,
             status=SubmissionStatus.PENDING
         )
         
@@ -185,7 +213,7 @@ async def create_submission_new(
         await db.refresh(submission)
         
         # Load relationships for response
-        await db.refresh(submission, ['user', 'file'])
+        await db.refresh(submission, ['user', 'file', 'reviewer'])
         
         return _get_submission_response(submission)
     except HTTPException:
@@ -193,182 +221,10 @@ async def create_submission_new(
         raise
     except Exception as e:
         # Log the error for debugging
-        print(f"Error in create_submission_new: {str(e)}")
+        print(f"Error in create_submission: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create submission"
-        )
-
-@router.post("/", response_model=SubmissionResponse, status_code=status.HTTP_201_CREATED)
-async def create_submission(
-    submission_data: SubmissionCreate,
-    current_user: User = Depends(get_current_user_dependency),
-    db: AsyncSession = Depends(get_db)
-):
-    """Create a new code submission for review."""
-    # Verify the file exists and belongs to the user
-    if submission_data.file_id:
-        # Check if file exists and belongs to current user's session
-        file_query = select(File).where(
-            File.id == normalize_uuid_string(submission_data.file_id)
-        ).options(joinedload(File.session))
-        file_result = await db.execute(file_query)
-        file = file_result.scalar_one_or_none()
-        
-        if not file:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found"
-            )
-        
-        # Check if the file belongs to the current user's session
-        if str(file.session.user_id) != str(current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. You can only submit files from your own sessions."
-            )
-    
-    # Create submission
-    submission = Submission(
-        id=str(uuid.uuid4()),
-        title=submission_data.title,
-        description=submission_data.description,
-        file_id=submission_data.file_id,
-        user_id=str(current_user.id),
-        status=SubmissionStatus.PENDING
-    )
-    
-    db.add(submission)
-    await db.commit()
-    await db.refresh(submission)
-    
-    # Load relationships for response
-    await db.refresh(submission, ['user', 'file'])
-    
-    return _get_submission_response(submission)
-
-@router.get("/", response_model=SubmissionListResponse)
-async def list_submissions_root(
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(10, ge=1, le=100, description="Items per page"),
-    status_filter: Optional[SubmissionStatus] = Query(None, description="Filter by status"),
-    current_user: User = Depends(get_current_user_dependency),
-    db: AsyncSession = Depends(get_db)
-):
-    """List submissions with pagination and filtering (root endpoint)."""
-    try:
-        # Build query based on user role
-        if current_user.role == UserRole.REVIEWER:
-            # Reviewers can see all submissions
-            query = select(Submission).options(
-                joinedload(Submission.user),
-                joinedload(Submission.reviewer),
-                joinedload(Submission.file)
-            )
-        else:
-            # Regular users can only see their own submissions
-            query = select(Submission).where(
-                Submission.user_id == str(current_user.id)
-            ).options(
-                joinedload(Submission.user),
-                joinedload(Submission.reviewer),
-                joinedload(Submission.file)
-            )
-        
-        # Apply status filter if provided
-        if status_filter:
-            query = query.where(Submission.status == status_filter)
-        
-        # Add ordering
-        query = query.order_by(Submission.created_at.desc())
-        
-        # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
-        total_count = await db.scalar(count_query)
-        
-        # Apply pagination
-        offset = (page - 1) * per_page
-        query = query.offset(offset).limit(per_page)
-        
-        # Execute query
-        result = await db.execute(query)
-        submissions = result.scalars().all()
-        
-        return SubmissionListResponse(
-            submissions=[_get_submission_response(sub) for sub in submissions],
-            total=total_count or 0,
-            page=page,
-            per_page=per_page,
-            total_pages=(total_count + per_page - 1) // per_page if total_count else 0
-        )
-    except Exception as e:
-        # Log the error for debugging
-        print(f"Error in list_submissions_root: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch submissions"
-        )
-
-@router.get("/list", response_model=SubmissionListResponse)
-async def list_submissions(
-    page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(10, ge=1, le=100, description="Items per page"),
-    status_filter: Optional[SubmissionStatus] = Query(None, description="Filter by status"),
-    current_user: User = Depends(get_current_user_dependency),
-    db: AsyncSession = Depends(get_db)
-):
-    """List submissions with pagination and filtering (list endpoint)."""
-    try:
-        # Build query based on user role
-        if current_user.role == UserRole.REVIEWER:
-            # Reviewers can see all submissions
-            query = select(Submission).options(
-                joinedload(Submission.user),
-                joinedload(Submission.reviewer),
-                joinedload(Submission.file)
-            )
-        else:
-            # Regular users can only see their own submissions
-            query = select(Submission).where(
-                Submission.user_id == str(current_user.id)
-            ).options(
-                joinedload(Submission.user),
-                joinedload(Submission.reviewer),
-                joinedload(Submission.file)
-            )
-        
-        # Apply status filter if provided
-        if status_filter:
-            query = query.where(Submission.status == status_filter)
-        
-        # Add ordering
-        query = query.order_by(Submission.created_at.desc())
-        
-        # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
-        total_count = await db.scalar(count_query)
-        
-        # Apply pagination
-        offset = (page - 1) * per_page
-        query = query.offset(offset).limit(per_page)
-        
-        # Execute query
-        result = await db.execute(query)
-        submissions = result.scalars().all()
-        
-        return SubmissionListResponse(
-            submissions=[_get_submission_response(sub) for sub in submissions],
-            total=total_count or 0,
-            page=page,
-            per_page=per_page,
-            total_pages=(total_count + per_page - 1) // per_page if total_count else 0
-        )
-    except Exception as e:
-        # Log the error for debugging
-        print(f"Error in list_submissions: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch submissions"
         )
 
 @router.get("/all", response_model=SubmissionListResponse)
@@ -382,8 +238,8 @@ async def get_all_submissions(
     """Get all submissions with pagination and filtering (new endpoint)."""
     try:
         # Build query based on user role
-        if current_user.role == UserRole.REVIEWER:
-            # Reviewers can see all submissions
+        if current_user.role in [UserRole.REVIEWER, UserRole.ADMIN]:
+            # Reviewers and admins can see all submissions
             query = select(Submission).options(
                 joinedload(Submission.user),
                 joinedload(Submission.reviewer),
@@ -438,20 +294,32 @@ async def get_pending_submissions(
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get pending submissions for reviewers."""
-    if current_user.role != UserRole.REVIEWER:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only reviewers can access pending submissions"
+    """Get pending submissions assigned to the current user for review."""
+    # Build query based on user role
+    if current_user.role == UserRole.ADMIN:
+        # Admins can see all pending submissions
+        query = select(Submission).where(
+            Submission.status == SubmissionStatus.PENDING
+        ).options(
+            joinedload(Submission.user),
+            joinedload(Submission.reviewer),
+            joinedload(Submission.file)
+        )
+    else:
+        # Any user can see pending submissions assigned to them
+        query = select(Submission).where(
+            and_(
+                Submission.status == SubmissionStatus.PENDING,
+                Submission.reviewer_id == str(current_user.id)
+            )
+        ).options(
+            joinedload(Submission.user),
+            joinedload(Submission.reviewer),
+            joinedload(Submission.file)
         )
     
-    query = select(Submission).where(
-        Submission.status == SubmissionStatus.PENDING
-    ).options(
-        joinedload(Submission.user),
-        joinedload(Submission.reviewer),
-        joinedload(Submission.file)
-    ).order_by(Submission.created_at.asc())
+    # Add ordering
+    query = query.order_by(Submission.created_at.asc())
     
     result = await db.execute(query)
     submissions = result.scalars().all()
@@ -463,13 +331,13 @@ async def get_available_reviewers(
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get list of available reviewers."""
-    # Query users with reviewer role
-    query = select(User).where(User.role == UserRole.REVIEWER)
+    """Get list of all available users who can be assigned as reviewers."""
+    # Query all users (any user can be a reviewer)
+    query = select(User).where(User.is_active == True)
     result = await db.execute(query)
-    reviewers = result.scalars().all()
+    users = result.scalars().all()
     
-    return [_get_user_summary(reviewer) for reviewer in reviewers]
+    return [_get_user_summary(user) for user in users]
 
 @router.get("/stats", response_model=SubmissionStats)
 async def get_submission_stats(
@@ -477,8 +345,8 @@ async def get_submission_stats(
     db: AsyncSession = Depends(get_db)
 ):
     """Get submission statistics."""
-    if current_user.role == UserRole.REVIEWER:
-        # Reviewers see all submissions
+    if current_user.role in [UserRole.REVIEWER, UserRole.ADMIN]:
+        # Reviewers and admins see all submissions
         total_query = select(func.count(Submission.id))
         pending_query = select(func.count(Submission.id)).where(
             Submission.status == SubmissionStatus.PENDING
@@ -577,13 +445,7 @@ async def review_submission(
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
 ):
-    """Review a submission (reviewers only)."""
-    if current_user.role != UserRole.REVIEWER:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only reviewers can review submissions"
-        )
-    
+    """Review a submission (assigned reviewer only)."""
     # Get submission
     query = select(Submission).where(
         Submission.id == normalize_uuid_string(submission_id)
@@ -608,10 +470,18 @@ async def review_submission(
             detail="Submission is not pending review"
         )
     
+    # Check if the current user is the assigned reviewer (or admin can review any)
+    if (current_user.role != UserRole.ADMIN and 
+        (not submission.reviewer_id or str(submission.reviewer_id) != str(current_user.id))):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to review this submission"
+        )
+    
     # Update submission with review
     submission.status = review_data.status
-    submission.review_comments = review_data.comments
-    submission.review_metadata = review_data.metadata
+    submission.review_comments = review_data.review_comments
+    submission.review_metadata = review_data.review_metadata or {}
     submission.reviewer_id = str(current_user.id)
     submission.reviewed_at = datetime.utcnow()
     
@@ -699,14 +569,6 @@ async def delete_submission(
     
     await db.delete(submission)
     await db.commit()
-
-@router.get("/analytics/dashboard", response_model=SubmissionStats)
-async def get_submission_stats_old(
-    current_user: User = Depends(get_current_user_dependency),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get submission statistics (legacy endpoint)."""
-    return await get_submission_stats(current_user, db)
 
 @router.get("/test")
 async def test_submissions_endpoint():
