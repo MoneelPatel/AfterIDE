@@ -125,6 +125,17 @@ async def create_submission(
     return _get_submission_response(submission)
 
 @router.get("/", response_model=SubmissionListResponse)
+async def list_submissions_old(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(10, ge=1, le=100, description="Items per page"),
+    status_filter: Optional[SubmissionStatus] = Query(None, description="Filter by status"),
+    current_user: User = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """List submissions with pagination and filtering (legacy endpoint)."""
+    return await list_submissions(page, per_page, status_filter, current_user, db)
+
+@router.get("/list", response_model=SubmissionListResponse)
 async def list_submissions(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(10, ge=1, le=100, description="Items per page"),
@@ -379,7 +390,15 @@ async def delete_submission(
     await db.delete(submission)
     await db.commit()
 
-@router.get("/stats/overview", response_model=SubmissionStats)
+@router.get("/analytics/dashboard", response_model=SubmissionStats)
+async def get_submission_stats_old(
+    current_user: User = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get submission statistics (legacy endpoint)."""
+    return await get_submission_stats(current_user, db)
+
+@router.get("/stats", response_model=SubmissionStats)
 async def get_submission_stats(
     current_user: User = Depends(get_current_user_dependency),
     db: AsyncSession = Depends(get_db)
@@ -421,6 +440,19 @@ async def get_submission_stats(
         pending=pending or 0,
         reviewed=reviewed or 0
     )
+
+@router.get("/test")
+async def test_submissions_endpoint():
+    """Test endpoint to verify submissions router is working."""
+    return {
+        "message": "Submissions router is working",
+        "endpoints": [
+            "/list",
+            "/stats",
+            "/pending",
+            "/reviewers"
+        ]
+    }
 
 @router.get("/status")
 async def submissions_status():

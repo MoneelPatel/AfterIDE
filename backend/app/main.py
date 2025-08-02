@@ -4,12 +4,13 @@ AfterIDE - FastAPI Application Entry Point
 Main application configuration and startup logic for the AfterIDE backend.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 import structlog
 import os
+import httpx
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -43,10 +44,32 @@ def create_application() -> FastAPI:
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins for development
+        allow_origins=[
+            "https://after-ide-production.up.railway.app",
+            "https://after-ide-development.up.railway.app", 
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+            "*"  # Fallback for development
+        ],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=[
+            "Accept",
+            "Accept-Language",
+            "Content-Language",
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "X-Request-ID",
+            "X-Instance-ID",
+            "Cache-Control",
+            "Pragma",
+            "Expires"
+        ],
+        expose_headers=["X-Request-ID", "X-Instance-ID"],
+        max_age=86400,  # Cache preflight requests for 24 hours
     )
     
     # Add trusted host middleware for security
@@ -231,10 +254,54 @@ def create_application() -> FastAPI:
             }
         )
     
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        """Global HTTP exception handler to ensure CORS headers are added."""
+        # Get the origin from the request
+        origin = request.headers.get("origin")
+        
+        # Create response with CORS headers
+        response = JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail}
+        )
+        
+        # Add CORS headers if origin is present
+        if origin:
+            # Check if origin is in allowed origins
+            allowed_origins = [
+                "https://after-ide-production.up.railway.app",
+                "https://after-ide-development.up.railway.app", 
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "*"
+            ]
+            
+            if origin in allowed_origins or "*" in allowed_origins:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+                response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, X-Request-ID, X-Instance-ID, Cache-Control, Pragma, Expires"
+                response.headers["Access-Control-Expose-Headers"] = "X-Request-ID, X-Instance-ID"
+        
+        return response
+    
     @app.on_event("startup")
     async def startup_event():
         """Application startup event handler."""
         logger.info("Starting AfterIDE application", version=settings.VERSION)
+        
+        # Log all registered routes for debugging
+        routes = []
+        for route in app.routes:
+            if hasattr(route, 'path'):
+                if hasattr(route, 'methods'):
+                    routes.append(f"{route.methods} {route.path}")
+                else:
+                    routes.append(f"WS {route.path}")
+        logger.info("Registered routes", routes=routes)
         
         # Initialize database
         try:
@@ -279,6 +346,74 @@ def create_application() -> FastAPI:
             "database_url": settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "local",
             "redis_url": settings.REDIS_URL.split("@")[-1] if "@" in settings.REDIS_URL else "local"
         }
+    
+    @app.get("/test-proxy")
+    async def test_proxy():
+        """Test endpoint to verify proxy functionality."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get("https://sad-chess-production.up.railway.app/api/v1/submissions/stats")
+                return {
+                    "status": "proxy_test_successful",
+                    "sad_chess_status": response.status_code,
+                    "sad_chess_response": response.json() if response.status_code == 200 else {"error": "Failed to reach sad-chess API"}
+                }
+        except Exception as e:
+            return {
+                "status": "proxy_test_failed",
+                "error": str(e)
+            }
+    
+    # Proxy route to forward requests to sad-chess API
+    @app.api_route("/proxy/sad-chess/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+    async def proxy_sad_chess(request: Request, path: str):
+        """Proxy requests to sad-chess API to avoid CORS issues."""
+        try:
+            # Construct the target URL
+            target_url = f"https://sad-chess-production.up.railway.app/api/v1/{path}"
+            
+            # Get query parameters
+            query_params = str(request.query_params) if request.query_params else ""
+            if query_params:
+                target_url += f"?{query_params}"
+            
+            # Get request body
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+            
+            # Get headers (filter out problematic ones)
+            headers = dict(request.headers)
+            headers_to_remove = [
+                "host", "content-length", "transfer-encoding", 
+                "connection", "upgrade", "http2-settings"
+            ]
+            for header in headers_to_remove:
+                headers.pop(header.lower(), None)
+            
+            # Make the request to sad-chess API
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=headers,
+                    content=body,
+                    follow_redirects=True
+                )
+                
+                # Return the response
+                return JSONResponse(
+                    content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
+                    status_code=response.status_code,
+                    headers=dict(response.headers)
+                )
+                
+        except Exception as e:
+            logger.error("Proxy request failed", error=str(e), path=path)
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Proxy request failed", "detail": str(e)}
+            )
     
     return app
 

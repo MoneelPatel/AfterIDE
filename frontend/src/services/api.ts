@@ -17,6 +17,7 @@ const getApiBaseUrl = (): string => {
   
   if (apiBaseUrl) {
     console.log('🔍 Using VITE_API_URL:', apiBaseUrl);
+    
     // Ensure HTTPS is used in production
     if (window.location.protocol === 'https:' && apiBaseUrl.startsWith('http://')) {
       console.warn('Mixed content detected: Converting HTTP API URL to HTTPS');
@@ -30,8 +31,8 @@ const getApiBaseUrl = (): string => {
   
   // Check if we're running on Railway (production)
   if (window.location.hostname.includes('railway.app')) {
-    console.log('🔍 Running on Railway, using hardcoded HTTPS URL');
-    // Use the backend Railway URL for API calls - ensure HTTPS
+    console.log('🔍 Running on Railway, using sad-chess backend');
+    // Use the sad-chess backend URL
     return 'https://sad-chess-production.up.railway.app/api/v1';
   }
   
@@ -43,8 +44,8 @@ const getApiBaseUrl = (): string => {
   }
   
   // Fallback for production without environment variable
-  console.log('🔍 Fallback: using hardcoded HTTPS URL');
-  // Use the backend Railway URL as default - ensure HTTPS
+  console.log('🔍 Fallback: using sad-chess backend');
+  // Use the sad-chess backend URL
   return 'https://sad-chess-production.up.railway.app/api/v1';
 };
 
@@ -248,8 +249,13 @@ class ApiService {
   }
 
   async getSubmissions(token: string, params?: any) {
-    const queryString = params ? `?${new URLSearchParams(params).toString()}` : '';
-    return this.request(`/submissions${queryString}`, {
+    // Filter out undefined values from params
+    const cleanParams = params ? Object.fromEntries(
+      Object.entries(params).filter(([_, value]) => value !== undefined && value !== 'undefined')
+    ) as Record<string, string> : {};
+    
+    const queryString = Object.keys(cleanParams).length > 0 ? `?${new URLSearchParams(cleanParams).toString()}` : '';
+    return this.request(`/submissions/list${queryString}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -302,7 +308,7 @@ class ApiService {
   }
 
   async getSubmissionStats(token: string) {
-    return this.request('/submissions/stats/overview', {
+    return this.request('/submissions/stats', {
       headers: {
         'Authorization': `Bearer ${token}`,
       },

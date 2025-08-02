@@ -123,7 +123,7 @@ async def get_current_user(
         HTTPException: If token is invalid
     """
     try:
-        user = await AuthService.get_current_user(credentials.credentials, db)
+        user = await AuthService.get_current_user(db, credentials.credentials)
         return UserResponse(
             id=str(user.id),
             username=user.username,
@@ -155,7 +155,7 @@ async def get_current_user_dependency(
         HTTPException: If token is invalid
     """
     try:
-        return await AuthService.get_current_user(credentials.credentials, db)
+        return await AuthService.get_current_user(db, credentials.credentials)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
