@@ -5,7 +5,6 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { useTheme } from '../contexts/ThemeContext';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import Editor, { OnMount, OnChange, BeforeMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -21,6 +20,16 @@ interface MonacoEditorProps {
   autoSave?: boolean;
   autoSaveDelay?: number;
   showMinimap?: boolean;
+  // Add editor settings props
+  fontSize?: number;
+  fontFamily?: string;
+  tabSize?: number;
+  insertSpaces?: boolean;
+  lineNumbers?: 'on' | 'off' | 'relative';
+  renderWhitespace?: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
+  cursorBlinking?: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
+  cursorSmoothCaretAnimation?: 'on' | 'off';
+  theme?: string;
 }
 
 interface EditorState {
@@ -39,9 +48,18 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   onSave,
   autoSave = true,
   autoSaveDelay = 2000,
-  showMinimap = true
+  showMinimap = true,
+  // Add editor settings props
+  fontSize = 14,
+  fontFamily = 'Monaco, Menlo, "Ubuntu Mono", monospace',
+  tabSize = 4,
+  insertSpaces = true,
+  lineNumbers = 'on',
+  renderWhitespace = 'selection',
+  cursorBlinking = 'blink',
+  cursorSmoothCaretAnimation = 'on',
+  theme = 'afteride-dark'
 }) => {
-  const { theme } = useTheme();
   const { sendFilesMessage, filesConnected } = useWebSocket();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monaco | null>(null);
@@ -543,14 +561,29 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [value]);
 
-  // Update minimap setting when prop changes
+  // Update editor settings when props change
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.updateOptions({
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        lineNumbers: lineNumbers,
+        tabSize: tabSize,
+        insertSpaces: insertSpaces,
+        renderWhitespace: renderWhitespace,
+        cursorBlinking: cursorBlinking,
+        cursorSmoothCaretAnimation: cursorSmoothCaretAnimation,
         minimap: { enabled: showMinimap }
       });
     }
-  }, [showMinimap]);
+  }, [fontSize, fontFamily, lineNumbers, tabSize, insertSpaces, renderWhitespace, cursorBlinking, cursorSmoothCaretAnimation, showMinimap]);
+
+  // Update theme when it changes
+  useEffect(() => {
+    if (editorRef.current && monacoRef.current) {
+      monacoRef.current.editor.setTheme(theme);
+    }
+  }, [theme]);
 
   return (
     <div className="monaco-editor-container h-full w-full">
@@ -561,14 +594,14 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         onChange={handleEditorChange}
         onMount={handleEditorDidMount}
         beforeMount={handleBeforeMount}
-        theme={theme === 'dark' ? 'afteride-dark' : 'afteride-light'}
+        theme={theme}
         options={{
           readOnly: readOnly,
           minimap: { enabled: showMinimap },
           scrollBeyondLastLine: false,
-          fontSize: 14,
-          fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-          lineNumbers: 'on',
+          fontSize: fontSize,
+          fontFamily: fontFamily,
+          lineNumbers: lineNumbers,
           lineNumbersMinChars: 3,
           lineDecorationsWidth: 10,
           glyphMargin: false,
@@ -587,15 +620,15 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           contextmenu: true,
           mouseWheelZoom: true,
           smoothScrolling: true,
-          cursorBlinking: 'blink',
-          cursorSmoothCaretAnimation: 'on',
-          renderWhitespace: 'selection',
+          cursorBlinking: cursorBlinking,
+          cursorSmoothCaretAnimation: cursorSmoothCaretAnimation,
+          renderWhitespace: renderWhitespace,
           renderControlCharacters: false,
           renderLineHighlight: 'line',
           selectOnLineNumbers: true,
           useTabStops: false,
-          tabSize: 4,
-          insertSpaces: true,
+          tabSize: tabSize,
+          insertSpaces: insertSpaces,
           detectIndentation: true,
           trimAutoWhitespace: true,
           largeFileOptimizations: true,

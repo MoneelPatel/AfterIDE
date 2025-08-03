@@ -1037,10 +1037,19 @@ const EditorPage: React.FC = () => {
                   language={getLanguageFromFileName(selectedFile.name || '')}
                   filename={selectedFile.path}
                   onSave={handleFileSave}
-                  autoSave={true}
-                  autoSaveDelay={2000}
+                  autoSave={editorSettings.autoSave}
+                  autoSaveDelay={editorSettings.autoSaveDelay}
                   height="100%"
-                  showMinimap={showMinimap}
+                  showMinimap={editorSettings.minimap}
+                  fontSize={editorSettings.fontSize}
+                  fontFamily={editorSettings.fontFamily}
+                  tabSize={editorSettings.tabSize}
+                  insertSpaces={editorSettings.insertSpaces}
+                  lineNumbers={editorSettings.lineNumbers}
+                  renderWhitespace={editorSettings.renderWhitespace}
+                  cursorBlinking={editorSettings.cursorBlinking}
+                  cursorSmoothCaretAnimation={editorSettings.cursorSmoothCaretAnimation}
+                  theme={editorSettings.theme}
                 />
               )
             })() : (
