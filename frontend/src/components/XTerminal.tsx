@@ -517,7 +517,8 @@ const XTerminal: React.FC<XTerminalProps> = () => {
 
       // Handle input
       terminal.onData((data) => {
-        if (isProcessingRef.current) return
+        // Allow input if we're waiting for user input, even if processing
+        if (isProcessingRef.current && !waitingForInputRef.current) return
 
         const code = data.charCodeAt(0)
 
