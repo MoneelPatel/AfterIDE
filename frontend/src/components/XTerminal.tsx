@@ -23,8 +23,13 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   const isProcessingRef = useRef(false)
   const workingDirectoryRef = useRef('/')
   const terminalConnectedRef = useRef(false)
+  const cursorPositionRef = useRef(0) // Track cursor position for tab completion
+  const completionSuggestionsRef = useRef<string[]>([])
+  const completionIndexRef = useRef(-1)
   
   const [isInitialized, setIsInitialized] = useState(false)
+  const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const { theme } = useTheme()
   const { 
     terminalConnected, 
@@ -32,6 +37,178 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     onTerminalMessage, 
     offTerminalMessage 
   } = useWebSocket()
+
+  // Tab completion functions
+  const getFileSuggestions = useCallback(async (partial: string): Promise<string[]> => {
+    if (!terminalConnectedRef.current) {
+      // Fallback to common files if not connected
+      const commonFiles = [
+        'main.py', 'app.py', 'index.js', 'package.json', 'README.md', 'requirements.txt',
+        'src/', 'dist/', 'node_modules/', 'public/', 'static/', 'templates/', 'views/',
+        'models/', 'controllers/', 'utils/', 'config/', 'tests/', 'docs/',
+        '.gitignore', '.env', 'Dockerfile', 'docker-compose.yml', 'Makefile'
+      ]
+      
+      if (!partial) return commonFiles
+      return commonFiles.filter(file => 
+        file.toLowerCase().startsWith(partial.toLowerCase())
+      )
+    }
+
+    // Use existing file suggestions from state if available
+    if (fileSuggestions.length > 0) {
+      if (!partial) return fileSuggestions
+      return fileSuggestions.filter(file => 
+        file.toLowerCase().startsWith(partial.toLowerCase())
+      )
+    }
+
+    // Request file list from backend via WebSocket
+    setIsLoadingSuggestions(true)
+    
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        setIsLoadingSuggestions(false)
+        resolve([])
+      }, 2000) // 2 second timeout
+
+      // Send file list request via WebSocket
+      sendTerminalMessage({
+        type: 'file_list_request',
+        directory: workingDirectoryRef.current
+      })
+
+      // Set up one-time handler for file list response
+      const handleFileListResponse = (message: any) => {
+        if (message.type === 'file_list_response') {
+          clearTimeout(timeout)
+          setIsLoadingSuggestions(false)
+          
+          const files = message.files || []
+          const fileNames = files.map((file: { name?: string; path?: string; type?: string }) => {
+            const name = file.name || file.path?.split('/').pop() || ''
+            return file.type === 'directory' ? name + '/' : name
+          })
+          
+          setFileSuggestions(fileNames)
+          
+          // Remove the handler
+          offTerminalMessage('file_list_response', handleFileListResponse)
+          
+          // Return filtered results
+          if (!partial) resolve(fileNames)
+          else resolve(fileNames.filter((file: string) => 
+            file.toLowerCase().startsWith(partial.toLowerCase())
+          ))
+        }
+      }
+      
+      onTerminalMessage('file_list_response', handleFileListResponse)
+    })
+  }, [fileSuggestions, sendTerminalMessage, onTerminalMessage, offTerminalMessage])
+
+  const handleTabCompletion = useCallback(async () => {
+    const terminal = xtermRef.current
+    if (!terminal) return
+    
+    const currentLine = currentLineRef.current
+    const cursorPos = cursorPositionRef.current
+    
+    // Find the word at cursor position
+    const beforeCursor = currentLine.slice(0, cursorPos)
+    const words = beforeCursor.split(/\s+/)
+    const currentWord = words[words.length - 1] || ''
+    
+    // Get suggestions for the current word
+    const suggestions = await getFileSuggestions(currentWord)
+    
+    if (suggestions.length === 0) {
+      // No suggestions - just beep
+      terminal.write('\x07')
+      return
+    }
+    
+    if (suggestions.length === 1) {
+      // Single suggestion - complete it
+      const completion = suggestions[0]
+      const completionSuffix = completion.slice(currentWord.length)
+      
+      // Update the line and cursor position
+      const afterCursor = currentLine.slice(cursorPos)
+      const newLine = beforeCursor + completionSuffix + afterCursor
+      const newCursorPos = cursorPos + completionSuffix.length
+      
+      // Clear the current line and rewrite it
+      terminal.write('\r$ ' + ' '.repeat(currentLine.length) + '\r$ ')
+      terminal.write(newLine)
+      
+      // Update refs
+      currentLineRef.current = newLine
+      cursorPositionRef.current = newCursorPos
+      
+      // Position cursor correctly
+      const remainingChars = newLine.length - newCursorPos
+      if (remainingChars > 0) {
+        terminal.write('\x1b[' + remainingChars + 'D')
+      }
+    } else {
+      // Multiple suggestions - show them
+      terminal.write('\r\n')
+      suggestions.forEach((suggestion: string) => {
+        terminal.write(suggestion + '  ')
+      })
+      terminal.write('\r\n$ ' + currentLine)
+      
+      // Reset completion state
+      completionSuggestionsRef.current = suggestions
+      completionIndexRef.current = 0
+    }
+  }, [getFileSuggestions])
+
+  const cycleTabCompletion = useCallback(() => {
+    const terminal = xtermRef.current
+    if (!terminal || completionSuggestionsRef.current.length === 0) return
+    
+    const suggestions = completionSuggestionsRef.current
+    const currentIndex = completionIndexRef.current
+    
+    // Cycle to next suggestion
+    const nextIndex = (currentIndex + 1) % suggestions.length
+    completionIndexRef.current = nextIndex
+    
+    const currentLine = currentLineRef.current
+    const cursorPos = cursorPositionRef.current
+    const beforeCursor = currentLine.slice(0, cursorPos)
+    const words = beforeCursor.split(/\s+/)
+    const currentWord = words[words.length - 1] || ''
+    
+    const suggestion = suggestions[nextIndex]
+    const completionSuffix = suggestion.slice(currentWord.length)
+    
+    // Update the line and cursor position
+    const afterCursor = currentLine.slice(cursorPos)
+    const newLine = beforeCursor + completionSuffix + afterCursor
+    const newCursorPos = cursorPos + completionSuffix.length
+    
+    // Clear the current line and rewrite it
+    terminal.write('\r$ ' + ' '.repeat(currentLine.length) + '\r$ ')
+    terminal.write(newLine)
+    
+    // Update refs
+    currentLineRef.current = newLine
+    cursorPositionRef.current = newCursorPos
+    
+    // Position cursor correctly
+    const remainingChars = newLine.length - newCursorPos
+    if (remainingChars > 0) {
+      terminal.write('\x1b[' + remainingChars + 'D')
+    }
+  }, [])
+
+  // Clear file suggestions when working directory changes
+  useEffect(() => {
+    setFileSuggestions([])
+  }, [workingDirectoryRef.current])
 
   // Debug connection status changes and keep ref in sync
   useEffect(() => {
@@ -336,6 +513,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
             currentLineRef.current = currentLineRef.current.slice(0, -1)
             terminal.write('\b \b')
           }
+        } else if (code === 9) { // Tab key
+          // Handle tab completion
+          handleTabCompletion()
         } else if (code === 27) { // Escape sequences (arrow keys)
           const seq = data.slice(1)
           if (seq === '[A') { // Arrow Up
@@ -366,6 +546,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
               terminal.write('\r$ ' + ' '.repeat(currentLineRef.current.length) + '\r$ ')
               currentLineRef.current = ''
             }
+          } else {
+            // Let xterm handle all other escape sequences (including left/right arrows) naturally
+            terminal.write(data)
           }
         } else if (code >= 32) { // Printable characters
           currentLineRef.current = currentLineRef.current + data

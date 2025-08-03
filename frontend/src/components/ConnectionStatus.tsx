@@ -7,6 +7,7 @@
 import React from 'react';
 import { useWebSocket } from '../contexts/WebSocketContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useCurrentFile } from '../contexts/CurrentFileContext';
 import { WifiIcon, ExclamationTriangleIcon, CheckCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 const ConnectionStatus: React.FC = () => {
@@ -20,6 +21,7 @@ const ConnectionStatus: React.FC = () => {
   } = useWebSocket();
   
   const { theme } = useTheme();
+  const { currentFile } = useCurrentFile();
 
   const getStatusIcon = (connected: boolean, connecting: boolean) => {
     if (connecting) {
@@ -75,13 +77,47 @@ const ConnectionStatus: React.FC = () => {
 
       {/* Connection Details (only show when connected) */}
       {(terminalConnected || filesConnected) && (
-        <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+        <div className={`text-xs font-mono ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
           {terminalMetadata && (
-            <div>Terminal ID: {terminalMetadata.connectionId.slice(0, 8)}...</div>
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1">
+                <span className="font-semibold">Terminal ID:</span>
+                <span className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{terminalMetadata.connectionId}</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="font-semibold">Session:</span>
+                <span className="bg-blue-100 dark:bg-blue-900/30 px-1 rounded">{terminalMetadata.sessionId}</span>
+              </div>
+            </div>
           )}
           {filesMetadata && (
-            <div>Files ID: {filesMetadata.connectionId.slice(0, 8)}...</div>
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1">
+                <span className="font-semibold">Files ID:</span>
+                <span className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{filesMetadata.connectionId}</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <span className="font-semibold">Session:</span>
+                <span className="bg-blue-100 dark:bg-blue-900/30 px-1 rounded">{filesMetadata.sessionId}</span>
+              </div>
+            </div>
           )}
+        </div>
+      )}
+
+      {/* Current File Information */}
+      {currentFile && (
+        <div className={`text-xs font-mono ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1">
+              <span className="font-semibold">File ID:</span>
+              <span className="bg-green-100 dark:bg-green-900/30 px-1 rounded">{currentFile.id}</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <span className="font-semibold">File:</span>
+              <span className="bg-green-100 dark:bg-green-900/30 px-1 rounded">{currentFile.name}</span>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -12,6 +12,7 @@ import XTerminal from '../components/XTerminal'
 import SubmissionForm from '../components/SubmissionForm'
 import { useWebSocket } from '../contexts/WebSocketContext'
 import { useAuthStore } from '../store/authStore'
+import { useCurrentFile } from '../contexts/CurrentFileContext'
 import { getUserSessionId, getUserSessionIdSync, getAuthToken } from '../services/websocket';
 
 interface Session {
@@ -74,6 +75,7 @@ const EditorPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const { isAuthenticated, user } = useAuthStore()
+  const { setCurrentFile } = useCurrentFile()
   
   // Clear files when user changes (security fix)
   useEffect(() => {
@@ -83,7 +85,21 @@ const EditorPage: React.FC = () => {
     setOpenTabs([])
     setActiveTabId('')
     setLoadedDirectories(new Set(['/']))
-  }, [user?.id]) // Clear when user ID changes
+    setCurrentFile(null) // Clear current file when user changes
+  }, [user?.id, setCurrentFile]) // Clear when user ID changes
+
+  // Update current file in context when selectedFile changes
+  useEffect(() => {
+    if (selectedFile) {
+      setCurrentFile({
+        id: selectedFile.id,
+        name: selectedFile.name || '',
+        path: selectedFile.path
+      })
+    } else {
+      setCurrentFile(null)
+    }
+  }, [selectedFile, setCurrentFile])
   const { 
     connectTerminal, 
     connectFiles, 

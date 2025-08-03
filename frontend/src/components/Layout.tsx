@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import ConnectionStatus from './ConnectionStatus'
 
 interface LayoutProps {
-  children: React.ReactNode
+  children: React.ReactNode;
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {

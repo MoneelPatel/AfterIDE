@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { useEffect } from 'react'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { WebSocketProvider } from './contexts/WebSocketContext'
+import { CurrentFileProvider } from './contexts/CurrentFileContext'
 
 import Layout from './components/Layout'
 import EditorPage from './pages/EditorPage'
@@ -21,42 +22,44 @@ function App() {
   return (
     <ThemeProvider>
       <WebSocketProvider>
-        <div className="h-full">
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
+        <CurrentFileProvider>
+          <div className="h-full">
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<LoginPage />} />
+              
+              {/* Protected routes */}
+              <Route
+                path="/"
+                element={
+                  isAuthenticated ? (
+                    <Layout>
+                      <EditorPage />
+                    </Layout>
+                  ) : (
+                    <LoginPage />
+                  )
+                }
+              />
+              
+              <Route
+                path="/review"
+                element={
+                  isAuthenticated ? (
+                    <Layout>
+                      <ReviewPage />
+                    </Layout>
+                  ) : (
+                    <LoginPage />
+                  )
+                }
+              />
+            </Routes>
             
-            {/* Protected routes */}
-            <Route
-              path="/"
-              element={
-                isAuthenticated ? (
-                  <Layout>
-                    <EditorPage />
-                  </Layout>
-                ) : (
-                  <LoginPage />
-                )
-              }
-            />
-            
-            <Route
-              path="/review"
-              element={
-                isAuthenticated ? (
-                  <Layout>
-                    <ReviewPage />
-                  </Layout>
-                ) : (
-                  <LoginPage />
-                )
-              }
-            />
-          </Routes>
-          
-          {/* Auth reset button - only show when authenticated */}
-          {isAuthenticated && <AuthReset />}
-        </div>
+            {/* Auth reset button - only show when authenticated */}
+            {isAuthenticated && <AuthReset />}
+          </div>
+        </CurrentFileProvider>
       </WebSocketProvider>
     </ThemeProvider>
   )
