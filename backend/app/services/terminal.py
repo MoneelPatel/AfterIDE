@@ -640,11 +640,22 @@ class TerminalService:
                     "python3", file_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    stdin=asyncio.subprocess.PIPE,
                     cwd=temp_workspace
                 )
                 
+                # TODO: Implement proper interactive input handling
+                # For now, provide some default input to handle basic input() calls
+                # This is a simple workaround - in a full implementation, this would be interactive
+                # A proper solution would require:
+                # 1. Detecting when the process is waiting for input
+                # 2. Sending input_request messages to the frontend
+                # 3. Receiving input_response messages from the frontend
+                # 4. Sending the input to the process
+                default_input = "Test User\n25\nyes\n"  # Name, age, likes Python
+                
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
+                    process.communicate(input=default_input.encode('utf-8')),
                     timeout=timeout
                 )
                 

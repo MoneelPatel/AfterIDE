@@ -26,6 +26,8 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   const cursorPositionRef = useRef(0) // Track cursor position for tab completion
   const completionSuggestionsRef = useRef<string[]>([])
   const completionIndexRef = useRef(-1)
+  const waitingForInputRef = useRef(false) // Track if we're waiting for user input
+  const inputPromptRef = useRef('') // Store the input prompt
   
   const [isInitialized, setIsInitialized] = useState(false)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
@@ -356,6 +358,26 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         }
         
         prompt()
+      } else if (message.type === 'input_request') {
+        // Handle input request from backend (e.g., Python input() function)
+        console.log('XTerminal: Input request received:', message.prompt)
+        waitingForInputRef.current = true
+        inputPromptRef.current = message.prompt || ''
+        
+        // Display the input prompt
+        if (message.prompt) {
+          writeOutput(message.prompt)
+        }
+        
+        // Don't show the regular prompt - we're waiting for input
+        isProcessingRef.current = true
+      } else if (message.type === 'input_response') {
+        // Handle input response confirmation
+        console.log('XTerminal: Input response confirmed')
+        waitingForInputRef.current = false
+        inputPromptRef.current = ''
+        isProcessingRef.current = false
+        prompt()
       }
     }
 
@@ -370,11 +392,15 @@ const XTerminal: React.FC<XTerminalProps> = () => {
 
     console.log('XTerminal: Setting up message handlers')
     onTerminalMessage('command_response', handleCommandResponse)
+    onTerminalMessage('input_request', handleCommandResponse)
+    onTerminalMessage('input_response', handleCommandResponse)
     onTerminalMessage('error', handleError)
 
     return () => {
       console.log('XTerminal: Cleaning up message handlers')
       offTerminalMessage('command_response', handleCommandResponse)
+      offTerminalMessage('input_request', handleCommandResponse)
+      offTerminalMessage('input_response', handleCommandResponse)
       offTerminalMessage('error', handleError)
     }
   }, [onTerminalMessage, offTerminalMessage, writeOutput, prompt])
@@ -498,6 +524,17 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         if (code === 13) { // Enter
           const command = currentLineRef.current
           currentLineRef.current = ''
+          
+          if (waitingForInputRef.current) {
+            // We're waiting for input - send it to the backend
+            console.log('XTerminal: Sending input to backend:', command)
+            sendTerminalMessage({
+              type: 'input_response',
+              input: command
+            })
+            terminal.write('\r\n')
+            return
+          }
           
           // For clear command, clear the current line and don't echo the command back
           if (command.trim().toLowerCase() === 'clear') {

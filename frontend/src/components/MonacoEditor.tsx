@@ -99,7 +99,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           { include: '@whitespace' },
           { include: '@numbers' },
           [/[{}()\[\]]/, '@brackets'],
-          [/[<>](?!@symbols)/, '@brackets'],
           [/@symbols/, {
             cases: {
               '@operators': 'operator',
