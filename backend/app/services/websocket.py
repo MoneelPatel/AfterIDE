@@ -15,7 +15,8 @@ from app.schemas.websocket import (
     validate_message, create_error_message, create_pong_message,
     MessageType, BaseMessage, CommandMessage, FileUpdateMessage,
     FileRequestMessage, FileListMessage, CommandResponseMessage,
-    FileDeleteMessage, FileRenameMessage, FolderCreateMessage
+    FileDeleteMessage, FileRenameMessage, FolderCreateMessage,
+    PongMessage, InputResponseMessage
 )
 from app.services.terminal import terminal_service
 from app.services.workspace import WorkspaceService
@@ -264,9 +265,25 @@ class WebSocketManager:
                 
             elif message.type == MessageType.PING:
                 # Handle ping
-                pong = create_pong_message()
-                await self.send_message(connection_id, pong)
+                pong_msg = PongMessage(type=MessageType.PONG)
+                await self.send_message(connection_id, pong_msg)
                 
+            elif message.type == MessageType.INPUT_RESPONSE:
+                # Handle input response from frontend
+                input_msg = InputResponseMessage(**message_data)
+                session_id = input_msg.session_id
+                
+                logger.info(
+                    "Input response received",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    input_length=len(input_msg.input)
+                )
+                
+                # Forward input to terminal service
+                if self.terminal_service:
+                    await self.terminal_service.handle_input_response(session_id, input_msg.input)
+                    
             elif message.type == MessageType.TERMINAL_RESIZE:
                 # Handle terminal resize
                 session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
@@ -281,7 +298,11 @@ class WebSocketManager:
                 # TODO: Handle terminal resize in container if needed
                 
             else:
-                logger.warning("Unknown terminal message type", message_type=message.type)
+                logger.warning(
+                    "Unknown terminal message type",
+                    connection_id=connection_id,
+                    message_type=message.type
+                )
                 
         except Exception as e:
             logger.error("Error handling terminal message", error=str(e), connection_id=connection_id)

@@ -23,6 +23,8 @@ class MessageType(str, Enum):
     COMMAND_RESPONSE = "command_response"
     TERMINAL_OUTPUT = "terminal_output"
     TERMINAL_RESIZE = "terminal_resize"
+    INPUT_REQUEST = "input_request"
+    INPUT_RESPONSE = "input_response"
     
     # File messages
     FILE_UPDATE = "file_update"
@@ -108,6 +110,20 @@ class TerminalResizeMessage(BaseMessage):
     """Terminal resize message."""
     cols: int
     rows: int
+
+
+class InputRequestMessage(BaseMessage):
+    """Input request message sent when a process is waiting for user input."""
+    type: MessageType = MessageType.INPUT_REQUEST
+    prompt: Optional[str] = Field(default="", description="Input prompt text")
+    session_id: str = Field(..., description="Session ID for the input request")
+
+
+class InputResponseMessage(BaseMessage):
+    """Input response message containing user input."""
+    type: MessageType = MessageType.INPUT_RESPONSE
+    input: str = Field(..., description="User input text")
+    session_id: str = Field(..., description="Session ID for the input response")
 
 
 # File Messages
@@ -231,6 +247,8 @@ def validate_message(data: Dict[str, Any]) -> BaseMessage:
         MessageType.COMMAND_RESPONSE: CommandResponseMessage,
         MessageType.TERMINAL_OUTPUT: TerminalOutputMessage,
         MessageType.TERMINAL_RESIZE: TerminalResizeMessage,
+        MessageType.INPUT_REQUEST: InputRequestMessage,
+        MessageType.INPUT_RESPONSE: InputResponseMessage,
         MessageType.FILE_UPDATE: FileUpdateMessage,
         MessageType.FILE_UPDATED: FileUpdatedMessage,
         MessageType.FILE_REQUEST: FileRequestMessage,

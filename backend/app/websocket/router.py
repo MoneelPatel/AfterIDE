@@ -33,6 +33,9 @@ async def get_workspace_service():
         workspace_service = WorkspaceService(db)
         # Set the workspace service for the WebSocket manager
         websocket_manager.set_workspace_service(workspace_service)
+        # Set the WebSocket manager for the terminal service
+        from app.services.terminal import terminal_service
+        terminal_service.set_websocket_manager(websocket_manager)
         return workspace_service
 
 

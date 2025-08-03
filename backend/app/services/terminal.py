@@ -19,7 +19,7 @@ from sqlalchemy import select, and_
 from app.models.file import File
 
 # WebSocket imports for file system notifications
-from app.schemas.websocket import FolderCreatedMessage, MessageType, FileUpdatedMessage, FileDeletedMessage
+from app.schemas.websocket import FolderCreatedMessage, MessageType, FileUpdatedMessage, FileDeletedMessage, InputRequestMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -39,7 +39,7 @@ class TerminalService:
         self.workspace_service = workspace_service
     
     def set_websocket_manager(self, websocket_manager):
-        """Set the WebSocket manager for file system notifications."""
+        """Set the WebSocket manager for sending messages to frontend."""
         self.websocket_manager = websocket_manager
         
     def create_session(self, session_id: str, working_directory: str = None) -> Dict[str, Any]:
@@ -555,7 +555,7 @@ class TerminalService:
             }
     
     async def _execute_python(self, session_id: str, working_dir: str, command: str, timeout: int) -> Dict[str, Any]:
-        """Execute Python command using workspace files."""
+        """Execute Python command using workspace files with interactive input support."""
         try:
             if not self.workspace_service:
                 return {
@@ -635,38 +635,8 @@ class TerminalService:
                 with open(file_path, 'w') as f:
                     f.write(file_content)
                 
-                # Execute the Python file
-                process = await asyncio.create_subprocess_exec(
-                    "python3", file_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    stdin=asyncio.subprocess.PIPE,
-                    cwd=temp_workspace
-                )
-                
-                # TODO: Implement proper interactive input handling
-                # For now, provide some default input to handle basic input() calls
-                # This is a simple workaround - in a full implementation, this would be interactive
-                # A proper solution would require:
-                # 1. Detecting when the process is waiting for input
-                # 2. Sending input_request messages to the frontend
-                # 3. Receiving input_response messages from the frontend
-                # 4. Sending the input to the process
-                default_input = "Test User\n25\nyes\n"  # Name, age, likes Python
-                
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(input=default_input.encode('utf-8')),
-                    timeout=timeout
-                )
-                
-                return {
-                    "success": process.returncode == 0,
-                    "stdout": stdout.decode('utf-8'),
-                    "stderr": stderr.decode('utf-8'),
-                    "return_code": process.returncode,
-                    "execution_time": 0.0,
-                    "command": command
-                }
+                # Execute the Python file with interactive input support
+                return await self._execute_python_interactive(session_id, file_path, temp_workspace, timeout)
             else:
                 # This is inline code execution - create temporary file with the code
                 # Create temporary file for Python code
@@ -680,28 +650,8 @@ class TerminalService:
                     temp_file = f.name
                 
                 try:
-                    # Execute Python code
-                    process = await asyncio.create_subprocess_exec(
-                        "python3", temp_file,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=temp_workspace
-                    )
-                    
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=timeout
-                    )
-                    
-                    return {
-                        "success": process.returncode == 0,
-                        "stdout": stdout.decode('utf-8'),
-                        "stderr": stderr.decode('utf-8'),
-                        "return_code": process.returncode,
-                        "execution_time": 0.0,
-                        "command": command
-                    }
-                    
+                    # Execute Python code with interactive input support
+                    return await self._execute_python_interactive(session_id, temp_file, temp_workspace, timeout)
                 finally:
                     # Clean up temporary file
                     try:
@@ -726,6 +676,161 @@ class TerminalService:
                 "return_code": 1,
                 "execution_time": 0.0,
                 "command": command
+            }
+    
+    async def _execute_python_interactive(self, session_id: str, file_path: str, cwd: str, timeout: int) -> Dict[str, Any]:
+        """Execute Python file with interactive input support."""
+        try:
+            # Create the process
+            process = await asyncio.create_subprocess_exec(
+                "python3", file_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+            
+            # Get session for storing waiting process
+            session = self.get_session(session_id)
+            if not session:
+                session = self.create_session(session_id)
+            
+            stdout_data = []
+            stderr_data = []
+            last_output_time = time.time()
+            
+            # Start reading stdout and stderr
+            async def read_stdout():
+                nonlocal last_output_time
+                while True:
+                    try:
+                        line = await asyncio.wait_for(process.stdout.readline(), timeout=0.1)
+                        if not line:
+                            break
+                        stdout_data.append(line.decode('utf-8'))
+                        last_output_time = time.time()
+                    except asyncio.TimeoutError:
+                        # Check if process is still running
+                        if process.returncode is not None:
+                            break
+                        continue
+                    except Exception:
+                        break
+            
+            async def read_stderr():
+                nonlocal last_output_time
+                while True:
+                    try:
+                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        if not line:
+                            break
+                        stderr_data.append(line.decode('utf-8'))
+                        last_output_time = time.time()
+                    except asyncio.TimeoutError:
+                        # Check if process is still running
+                        if process.returncode is not None:
+                            break
+                        continue
+                    except Exception:
+                        break
+            
+            # Start reading tasks
+            stdout_task = asyncio.create_task(read_stdout())
+            stderr_task = asyncio.create_task(read_stderr())
+            
+            # Monitor for input waiting
+            async def monitor_input():
+                nonlocal last_output_time
+                while process.returncode is None:
+                    await asyncio.sleep(0.5)
+                    
+                    # If process has been running for more than 2 seconds without output, it might be waiting for input
+                    if time.time() - last_output_time > 2.0:
+                        # Check if we have any output that ends with a prompt-like pattern
+                        current_output = "".join(stdout_data)
+                        if current_output and (current_output.endswith("? ") or 
+                                             current_output.endswith(": ") or 
+                                             current_output.endswith("> ") or
+                                             "input" in current_output.lower()):
+                            
+                            # Store the waiting process in session
+                            session["waiting_process"] = process
+                            
+                            # Send input request to frontend
+                            if self.websocket_manager:
+                                input_request = InputRequestMessage(
+                                    type="input_request",
+                                    prompt=current_output.split('\n')[-1] if current_output else "",
+                                    session_id=session_id
+                                )
+                                
+                                # Broadcast to all connections in this session
+                                await self.websocket_manager.broadcast_to_session(session_id, input_request)
+                                
+                                logger.info("Sent input request to frontend", session_id=session_id)
+                            
+                            # Wait for input response (this will be handled by handle_input_response)
+                            # For now, just wait a bit longer
+                            await asyncio.sleep(5.0)
+                            break
+            
+            # Start monitoring task
+            monitor_task = asyncio.create_task(monitor_input())
+            
+            # Wait for process to complete or timeout
+            try:
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                # Process timed out - kill it
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                
+                # Cancel all tasks
+                stdout_task.cancel()
+                stderr_task.cancel()
+                monitor_task.cancel()
+                
+                return {
+                    "success": False,
+                    "stdout": "".join(stdout_data),
+                    "stderr": "".join(stderr_data) + f"\nCommand timed out after {timeout} seconds\n",
+                    "return_code": 1,
+                    "execution_time": timeout,
+                    "command": "python"
+                }
+            
+            # Wait for all tasks to complete
+            await asyncio.gather(stdout_task, stderr_task, monitor_task, return_exceptions=True)
+            
+            # Clear any waiting process from session
+            session["waiting_process"] = None
+            
+            return {
+                "success": process.returncode == 0,
+                "stdout": "".join(stdout_data),
+                "stderr": "".join(stderr_data),
+                "return_code": process.returncode,
+                "execution_time": 0.0,
+                "command": "python"
+            }
+            
+        except Exception as e:
+            # Clear any waiting process from session
+            session = self.get_session(session_id)
+            if session:
+                session["waiting_process"] = None
+            
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Interactive execution error: {str(e)}\n",
+                "return_code": 1,
+                "execution_time": 0.0,
+                "command": "python"
             }
     
     async def _execute_cd(self, session_id: str, command: str) -> Dict[str, Any]:
@@ -2338,15 +2443,42 @@ class TerminalService:
         return self.working_directories.get(session_id, "/")
     
     def cleanup_session(self, session_id: str):
-        """Clean up a terminal session."""
+        """Clean up session data."""
         if session_id in self.sessions:
             del self.sessions[session_id]
         if session_id in self.command_history:
             del self.command_history[session_id]
-        if session_id in self.working_directories:
-            del self.working_directories[session_id]
-        
-        logger.info("Terminal session cleaned up", session_id=session_id)
+    
+    async def handle_input_response(self, session_id: str, user_input: str):
+        """Handle input response from frontend and send to waiting process."""
+        try:
+            session = self.get_session(session_id)
+            if not session:
+                logger.warning("No session found for input response", session_id=session_id)
+                return
+            
+            # Get the waiting process from session
+            waiting_process = session.get("waiting_process")
+            if not waiting_process:
+                logger.warning("No waiting process found for input response", session_id=session_id)
+                return
+            
+            # Send input to the process
+            try:
+                waiting_process.stdin.write(f"{user_input}\n".encode('utf-8'))
+                await waiting_process.stdin.drain()
+                
+                # Clear the waiting process from session
+                session["waiting_process"] = None
+                
+                logger.info("Input sent to waiting process", session_id=session_id, input_length=len(user_input))
+                
+            except Exception as e:
+                logger.error("Error sending input to process", session_id=session_id, error=str(e))
+                session["waiting_process"] = None
+                
+        except Exception as e:
+            logger.error("Error handling input response", session_id=session_id, error=str(e))
     
     async def _execute_help(self) -> Dict[str, Any]:
         """Execute help command."""
