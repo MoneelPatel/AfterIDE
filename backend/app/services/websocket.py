@@ -399,21 +399,64 @@ class WebSocketManager:
             elif message.type == MessageType.FILE_LIST:
                 # Handle file list request
                 file_msg = FileListMessage(**message_data)
-                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                connection_meta = self.connection_metadata.get(connection_id, {})
+                session_id = connection_meta.get("session_id")
+                user_id = connection_meta.get("user_id")
                 
                 logger.info(
                     "File list request received",
                     connection_id=connection_id,
                     session_id=session_id,
-                    directory=file_msg.directory
+                    user_id=user_id,
+                    directory=file_msg.directory,
+                    connection_metadata=connection_meta
                 )
                 
-                # Get file list from database using workspace service
+                # SECURITY: Verify user has access to this session
                 files = []
-                if self.workspace_service:
-                    files = await self.workspace_service.get_workspace_files(
+                if self.workspace_service and session_id and user_id:
+                    try:
+                        # First verify user owns this session
+                        session = await self.workspace_service.get_user_workspace(
+                            user_id=user_id,
+                            session_id=session_id
+                        )
+                        
+                        if session:
+                            # User is authorized - get the files
+                            files = await self.workspace_service.get_workspace_files(
+                                session_id=session_id,
+                                directory=file_msg.directory or "/"
+                            )
+                            logger.info(
+                                "File list authorized and retrieved",
+                                connection_id=connection_id,
+                                session_id=session_id,
+                                user_id=user_id,
+                                file_count=len(files)
+                            )
+                        else:
+                            logger.warning(
+                                "Unauthorized file list access attempt",
+                                connection_id=connection_id,
+                                session_id=session_id,
+                                user_id=user_id
+                            )
+                    except Exception as e:
+                        logger.error(
+                            "Failed to authorize file list access",
+                            connection_id=connection_id,
+                            session_id=session_id,
+                            user_id=user_id,
+                            error=str(e)
+                        )
+                else:
+                    logger.warning(
+                        "File list request missing required data",
+                        connection_id=connection_id,
                         session_id=session_id,
-                        directory=file_msg.directory or "/"
+                        user_id=user_id,
+                        workspace_service_available=bool(self.workspace_service)
                     )
                 
                 from app.schemas.websocket import FileListResponseMessage

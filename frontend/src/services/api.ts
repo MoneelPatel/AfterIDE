@@ -6,73 +6,34 @@
 
 // Get the API base URL based on environment
 const getApiBaseUrl = (): string => {
-  console.log('🔍 getApiBaseUrl called');
-  console.log('🔍 VITE_API_URL from env:', import.meta.env.VITE_API_URL);
+  console.log('🔍 getApiBaseUrl called - HARDCODED HTTPS ENFORCEMENT');
+  
+  // TEMPORARY FIX: Always return HTTPS URL regardless of environment
+  // This is to debug the persistent HTTP issue
+  const hardcodedUrl = 'https://sad-chess-production.up.railway.app/api/v1';
+  console.log('🔍 HARDCODED URL:', hardcodedUrl);
+  console.log('🔍 Original VITE_API_URL from env:', import.meta.env.VITE_API_URL);
   console.log('🔍 window.location.protocol:', window.location.protocol);
   console.log('🔍 window.location.hostname:', window.location.hostname);
-  console.log('🔍 import.meta.env.DEV:', import.meta.env.DEV);
-  console.log('🔍 import.meta.env.PROD:', import.meta.env.PROD);
   
-  // Check if we have a production API URL configured
-  let apiBaseUrl = import.meta.env.VITE_API_URL;
-  
-  if (apiBaseUrl) {
-    console.log('🔍 Using VITE_API_URL:', apiBaseUrl);
-    
-    // Force HTTPS for any HTTP URLs, especially in production
-    if (apiBaseUrl.startsWith('http://')) {
-      console.warn('Converting HTTP API URL to HTTPS');
-      apiBaseUrl = apiBaseUrl.replace('http://', 'https://');
-      console.log('🔍 Converted to HTTPS:', apiBaseUrl);
-    }
-    
-    return apiBaseUrl;
-  }
-  
-  // Check if we're running on Railway (production)
-  if (window.location.hostname.includes('railway.app') || import.meta.env.PROD) {
-    console.log('🔍 Running on Railway or in production, using HTTPS sad-chess backend');
-    // Always use HTTPS for Railway deployments
-    return 'https://sad-chess-production.up.railway.app/api/v1';
-  }
-  
-  // Check if we're in development mode
-  if (import.meta.env.DEV) {
-    console.log('🔍 Development mode, using relative URL');
-    // In development, use relative URLs (will be proxied by Vite)
-    return '/api/v1';
-  }
-  
-  // Fallback for production without environment variable
-  console.log('🔍 Fallback: using HTTPS sad-chess backend');
-  // Always use HTTPS for production fallback
-  return 'https://sad-chess-production.up.railway.app/api/v1';
+  return hardcodedUrl;
 };
 
 // Utility to force HTTPS for all API requests to sad-chess-production
 function forceHttps(url: string): string {
   console.log('🔍 forceHttps input:', url);
   
+  // NUCLEAR OPTION: If it contains sad-chess-production, force HTTPS no matter what
+  if (url.includes('sad-chess-production')) {
+    const httpsUrl = url.replace(/^http:\/\//, 'https://');
+    console.log('🔍 forceHttps NUCLEAR: sad-chess detected, forced HTTPS:', httpsUrl);
+    return httpsUrl;
+  }
+  
   // Force HTTPS for any HTTP URLs
   if (url.startsWith('http://')) {
     const httpsUrl = url.replace('http://', 'https://');
     console.log('🔍 forceHttps converted HTTP to HTTPS:', httpsUrl);
-    return httpsUrl;
-  }
-  
-  // Also handle sad-chess-production specifically - ensure it's always HTTPS
-  if (url.includes('sad-chess-production.up.railway.app')) {
-    const httpsUrl = url.replace(/^http:\/\/sad-chess-production\.up\.railway\.app/, 'https://sad-chess-production.up.railway.app');
-    if (httpsUrl !== url) {
-      console.log('🔍 forceHttps converted sad-chess URL to HTTPS:', httpsUrl);
-      return httpsUrl;
-    }
-  }
-  
-  // Additional safety: if we're on HTTPS page, ensure all URLs are HTTPS
-  if (window.location.protocol === 'https:' && url.startsWith('http://')) {
-    const httpsUrl = url.replace('http://', 'https://');
-    console.log('🔍 forceHttps: HTTPS page detected, converting to HTTPS:', httpsUrl);
     return httpsUrl;
   }
   
@@ -86,12 +47,12 @@ class ApiService {
   private instanceId: string;
 
   constructor() {
-    console.log('🔍 ApiService constructor called');
+    console.log('🔍 ApiService constructor called - BUILD 20250802-002');
     this.version = `v${Date.now()}`; // Force new instance with timestamp
-    this.instanceId = Math.random().toString(36).substr(2, 9); // Unique instance ID
+    this.instanceId = Math.random().toString(36).substring(2, 9); // Unique instance ID
     console.log('🔍 ApiService version:', this.version);
     console.log('🔍 ApiService instance ID:', this.instanceId);
-    console.log('🔍 ApiService getFileByPath method signature:', this.getFileByPath.toString());
+    console.log('🔍 ApiService createCodeReview method target:', '/code-reviews');
   }
 
   private getBaseUrl(): string {
@@ -186,6 +147,23 @@ class ApiService {
         }
         
         throw new Error('Authentication failed: Invalid token');
+      }
+      
+      // Handle 422 validation errors with detailed messages
+      if (response.status === 422) {
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.detail && Array.isArray(errorData.detail)) {
+            // Extract user-friendly messages from validation errors
+            const validationErrors = errorData.detail.map((error: any) => {
+              const field = error.loc?.[error.loc.length - 1] || 'field';
+              return error.msg || `Invalid ${field}`;
+            });
+            throw new Error(validationErrors.join('. '));
+          }
+        } catch (parseError) {
+          // If we can't parse the error, fall through to generic error
+        }
       }
       
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
@@ -301,7 +279,7 @@ class ApiService {
   }
 
   async createCodeReview(token: string, submissionData: any) {
-    return this.request('/code-reviews', {
+    return this.request('/code-reviews/', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -399,9 +377,9 @@ class ApiService {
   }
 
   async getFileByPathCodeReview(token: string, filepath: string) {
-    // Use the existing submissions endpoint since code-reviews endpoint doesn't exist
+    // Use the code-reviews endpoint that should now be available
     const cacheBuster = Date.now();
-    const endpoint = `/submissions/file-by-path/${encodeURIComponent(filepath)}?cb=${cacheBuster}`;
+    const endpoint = `/code-reviews/file-by-path/${encodeURIComponent(filepath)}?cb=${cacheBuster}`;
     console.log('🔍 getFileByPathCodeReview called with:', { token: token ? 'present' : 'missing', filepath, endpoint });
     console.log('🔍 Full URL will be:', `${this.getBaseUrl()}${endpoint}`);
     return this.request(endpoint, {

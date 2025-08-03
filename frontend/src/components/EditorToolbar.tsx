@@ -7,7 +7,6 @@
 import React, { useState } from 'react';
 import {
   MagnifyingGlassIcon,
-  ArrowPathIcon,
   DocumentArrowDownIcon,
   Cog6ToothIcon,
   EyeIcon,
@@ -19,7 +18,6 @@ interface EditorToolbarProps {
   onSave: () => void;
   onFind: (query: string, replace?: string) => void;
   onReplace: (query: string, replace: string) => void;
-  onRefresh: () => void;
   onToggleMinimap: () => void;
   onToggleWordWrap: () => void;
   onOpenSettings: () => void;
@@ -38,7 +36,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onSave,
   onFind,
   onReplace,
-  onRefresh,
   onToggleMinimap,
   onToggleWordWrap,
   onOpenSettings,
@@ -110,14 +107,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
           Save
         </button>
 
-        <button
-          onClick={onRefresh}
-          className="flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          title="Refresh file"
-        >
-          <ArrowPathIcon className="w-4 h-4 mr-1" />
-          Refresh
-        </button>
 
         {canSubmit && onSubmitForReview && (
           <button

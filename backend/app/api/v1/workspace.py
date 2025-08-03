@@ -19,6 +19,74 @@ from app.schemas.workspace import (
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
+from app.api.v1.endpoints.auth import get_current_user_dependency
+
+
+@router.get("/files", response_model=FileListResponse)
+async def get_workspace_files_secure(
+    session_id: str,
+    directory: str = "/",
+    current_user: dict = Depends(get_current_user_dependency),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get files in a workspace directory with proper user authorization.
+    
+    Args:
+        session_id: Session identifier (query parameter)
+        directory: Directory path (default: "/")
+        current_user: Current authenticated user (from JWT token)
+        db: Database session
+        
+    Returns:
+        FileListResponse: List of files in the directory
+        
+    Raises:
+        HTTPException: If session not found or user doesn't have access
+    """
+    try:
+        workspace_service = WorkspaceService(db)
+        
+        # SECURITY: Verify user has access to this session using authenticated user ID
+        user_id = str(current_user.id)  # Get user ID from authenticated token
+        session = await workspace_service.get_user_workspace(
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        if not session:
+            logger.warning("Unauthorized workspace access attempt", 
+                         user_id=user_id, session_id=session_id)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found or access denied"
+            )
+        
+        # User is authorized - get the files
+        files = await workspace_service.get_workspace_files(
+            session_id=session_id,
+            directory=directory
+        )
+        
+        logger.info("Workspace files accessed", 
+                   user_id=user_id, session_id=session_id, directory=directory)
+        
+        return FileListResponse(
+            session_id=session_id,
+            directory=directory,
+            files=files
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get workspace files", error=str(e), 
+                    user_id=str(current_user.id), session_id=session_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get workspace files"
+        )
+
 
 @router.post("/sessions", response_model=SessionResponse)
 async def create_session(

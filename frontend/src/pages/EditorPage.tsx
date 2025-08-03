@@ -74,6 +74,16 @@ const EditorPage: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const { isAuthenticated, user } = useAuthStore()
+  
+  // Clear files when user changes (security fix)
+  useEffect(() => {
+    console.log('🔍 User changed, clearing files for security:', user?.username)
+    setFiles([])
+    setSelectedFile(null)
+    setOpenTabs([])
+    setActiveTabId('')
+    setLoadedDirectories(new Set(['/']))
+  }, [user?.id]) // Clear when user ID changes
   const { 
     connectTerminal, 
     connectFiles, 
@@ -267,6 +277,8 @@ const EditorPage: React.FC = () => {
   useEffect(() => {
     const handleFilesMessage = (message: any) => {
       if (message.type === 'file_list_response') {
+        console.log('🔍 File list response received:', message)
+        
         // Convert backend file format to frontend FileNode format
         const backendFiles = message.files || []
         const convertedFiles: FileNode[] = backendFiles.map((file: any, index: number) => ({
@@ -281,24 +293,52 @@ const EditorPage: React.FC = () => {
           children: file.type === 'directory' ? [] : undefined
         }))
         
-        // Update files, combining with existing files from other directories
-        setFiles(prevFiles => {
-          const fileMap = new Map<string, FileNode>()
-          
-          // Flatten existing hierarchical structure to get all files at all levels
-          const existingFlatFiles = flattenFileTree(prevFiles)
-          
-          // Add existing files to map
-          existingFlatFiles.forEach(file => fileMap.set(file.path, file))
-          
-          // Add new files (overwriting duplicates)
-          convertedFiles.forEach(file => fileMap.set(file.path, file))
-          
-          const allFlatFiles = Array.from(fileMap.values())
-          
-          // Build hierarchical tree structure
-          return buildHierarchicalTree(allFlatFiles)
-        })
+        console.log('🔍 Converted files:', convertedFiles)
+        
+        // SECURITY FIX: Replace files instead of merging to prevent cross-user file leakage
+        // Only merge files if we're loading a subdirectory, not the root
+        const requestedDirectory = message.directory || '/'
+        
+        if (requestedDirectory === '/') {
+          // Root directory request - replace all files
+          console.log('🔍 Replacing all files (root directory)')
+          setFiles(buildHierarchicalTree(convertedFiles))
+        } else {
+          // Subdirectory request - merge carefully 
+          setFiles(prevFiles => {
+            const fileMap = new Map<string, FileNode>()
+            
+            // Flatten existing hierarchical structure to get all files at all levels
+            const existingFlatFiles = flattenFileTree(prevFiles)
+            
+            // Only keep existing files that are NOT direct children of the directory being updated
+            // but keep the directory itself and files in other directories
+            existingFlatFiles.forEach(file => {
+              const normalizedRequestedDir = requestedDirectory.endsWith('/') ? requestedDirectory : requestedDirectory + '/'
+              const normalizedFilePath = file.path.endsWith('/') ? file.path : file.path + '/'
+              
+              // Keep the file if:
+              // 1. It's not in the requested directory at all, OR
+              // 2. It's the requested directory itself, OR  
+              // 3. It's in a subdirectory of the requested directory (deeper nesting)
+              const isInRequestedDir = file.path.startsWith(normalizedRequestedDir) && file.path !== requestedDirectory
+              const isDirectChild = isInRequestedDir && !file.path.substring(normalizedRequestedDir.length).includes('/')
+              
+              if (!isDirectChild || file.path === requestedDirectory) {
+                fileMap.set(file.path, file)
+              }
+            })
+            
+            // Add new files from the requested directory
+            convertedFiles.forEach(file => fileMap.set(file.path, file))
+            
+            const allFlatFiles = Array.from(fileMap.values())
+            console.log('🔍 Final merged files:', allFlatFiles)
+            
+            // Build hierarchical tree structure
+            return buildHierarchicalTree(allFlatFiles)
+          })
+        }
         
         setIsLoading(false)
         
@@ -883,12 +923,6 @@ const EditorPage: React.FC = () => {
     setWordWrap(!wordWrap)
   }
 
-  const handleRefresh = () => {
-    if (selectedFile) {
-      setFileContent(selectedFile.content || '')
-      setIsDirty(false)
-    }
-  }
 
   const handleOpenSettings = () => {
     setShowSettings(true)
@@ -953,7 +987,6 @@ const EditorPage: React.FC = () => {
         onSave={handleFileSave}
         onFind={handleFind}
         onReplace={handleReplace}
-        onRefresh={handleRefresh}
         onToggleMinimap={handleToggleMinimap}
         onToggleWordWrap={handleToggleWordWrap}
         onOpenSettings={handleOpenSettings}

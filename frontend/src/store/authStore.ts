@@ -25,8 +25,8 @@ interface AuthState {
   isAuthenticated: boolean;
   user: User | null;
   token: string | null;
-  login: (username: string, password: string) => Promise<boolean>;
-  register: (username: string, email: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   setToken: (token: string) => void;
   initialize: () => void;
@@ -78,10 +78,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }, 100);
       
       console.log('✅ Login completed successfully');
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('❌ Login error:', error);
-      return false;
+      return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
     }
   },
   
@@ -109,10 +109,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
       }, 100);
       
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('Registration error:', error);
-      return false;
+      return { success: false, error: error instanceof Error ? error.message : 'Registration failed' };
     }
   },
   

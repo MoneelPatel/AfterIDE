@@ -45,6 +45,19 @@ except Exception as e:
     print(f"⚠️  Submissions router not available: {e}")
 
 try:
+    from app.api.v1.endpoints import submissions
+    # Create a separate code-reviews router that includes the code-review endpoints
+    code_reviews_router = APIRouter()
+    # Add trailing slashes to prevent Railway redirects
+    code_reviews_router.post("/")(submissions.create_code_review)
+    code_reviews_router.post("")(submissions.create_code_review)  # Alternative without slash
+    code_reviews_router.get("/file-by-path/{filepath:path}")(submissions.get_file_by_path_code_review)
+    api_router.include_router(code_reviews_router, prefix="/code-reviews", tags=["code-reviews"])
+    print("✅ Code Reviews router included")
+except Exception as e:
+    print(f"⚠️  Code Reviews router not available: {e}")
+
+try:
     from app.api.v1.endpoints import workspace
     api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
     print("✅ Workspace router included")

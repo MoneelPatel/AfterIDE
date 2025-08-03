@@ -73,9 +73,20 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
     setShowReviewerDropdown(false);
   };
 
+  const handleInputBlur = () => {
+    // Delay closing to allow for dropdown item clicks
+    setTimeout(() => setShowReviewerDropdown(false), 150);
+  };
+
+  const handleClickOutside = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      setShowReviewerDropdown(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={handleClickOutside}>
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
             Submit for Review
@@ -128,7 +139,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
 
           <div className="relative">
             <label htmlFor="reviewer" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Assign Reviewer (optional)
+              Assign Reviewer
             </label>
             <div className="relative">
               <input
@@ -137,6 +148,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
                 value={reviewerUsername}
                 onChange={(e) => setReviewerUsername(e.target.value)}
                 onFocus={() => setShowReviewerDropdown(true)}
+                onBlur={handleInputBlur}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                 placeholder="Type reviewer username or select from dropdown"
               />
@@ -151,23 +163,32 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
               </button>
             </div>
             
-            {showReviewerDropdown && availableReviewers.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
-                {availableReviewers.map((reviewer) => (
-                  <button
-                    key={reviewer.id}
-                    type="button"
-                    onClick={() => handleReviewerSelect(reviewer.username)}
-                    className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span>{reviewer.username}</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                        {reviewer.role}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+            {showReviewerDropdown && (
+              <div 
+                className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto" 
+                onClick={(e) => e.stopPropagation()}
+              >
+                {availableReviewers.length > 0 ? (
+                  availableReviewers.map((reviewer) => (
+                    <button
+                      key={reviewer.id}
+                      type="button"
+                      onClick={() => handleReviewerSelect(reviewer.username)}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{reviewer.username}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                          {reviewer.role}
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-2 text-gray-500 dark:text-gray-400 text-sm">
+                    No reviewers available
+                  </div>
+                )}
               </div>
             )}
           </div>

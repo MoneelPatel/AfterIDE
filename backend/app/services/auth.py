@@ -74,9 +74,9 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
-        # Query user from database
+        # Query user from database (case-insensitive)
         result = await db.execute(
-            select(User).where(User.username == username)
+            select(User).where(User.username.ilike(username))
         )
         user = result.scalar_one_or_none()
         
@@ -110,9 +110,9 @@ class AuthService:
         Raises:
             ValueError: If username or email already exists
         """
-        # Check if username already exists
+        # Check if username already exists (case-insensitive)
         result = await db.execute(
-            select(User).where(User.username == user_data.username)
+            select(User).where(User.username.ilike(user_data.username))
         )
         if result.scalar_one_or_none():
             raise ValueError("Username already exists")
@@ -249,3 +249,27 @@ class AuthService:
             return None
         
         return user 
+    
+    @staticmethod
+    async def logout_user(token: str) -> bool:
+        """
+        Logout user by invalidating token.
+        
+        Args:
+            token: JWT access token to invalidate
+            
+        Returns:
+            True if logout successful, False otherwise
+        """
+        # For stateless JWT tokens, we just need to verify the token is valid
+        # In a more complex system, you might maintain a blacklist of tokens
+        payload = AuthService.verify_token(token)
+        if payload is None:
+            logger.warning("Invalid token provided for logout")
+            return False
+        
+        user_id = payload.get("sub")
+        username = payload.get("username")
+        
+        logger.info("User logged out successfully", user_id=user_id, username=username)
+        return True

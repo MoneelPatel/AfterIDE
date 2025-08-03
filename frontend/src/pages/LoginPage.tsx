@@ -34,13 +34,13 @@ const LoginPage: React.FC = () => {
     try {
       if (isLogin) {
         console.log('🔄 Attempting login...');
-        const success = await login(username, password)
-        if (success) {
+        const result = await login(username, password)
+        if (result.success) {
           console.log('✅ Login successful, should redirect automatically');
           setSuccess('Login successful! Redirecting...');
         } else {
           console.log('❌ Login failed');
-          setError('Invalid username or password')
+          setError(result.error || 'Invalid username or password')
         }
       } else {
         // Registration
@@ -49,8 +49,8 @@ const LoginPage: React.FC = () => {
           return
         }
         
-        const success = await register(username, email, password)
-        if (success) {
+        const result = await register(username, email, password)
+        if (result.success) {
           setSuccess('Account created successfully! You can now log in.')
           setIsLogin(true)
           setUsername('')
@@ -58,7 +58,7 @@ const LoginPage: React.FC = () => {
           setPassword('')
           setConfirmPassword('')
         } else {
-          setError('Registration failed. Please try again.')
+          setError(result.error || 'Registration failed. Please try again.')
         }
       }
     } catch (err) {

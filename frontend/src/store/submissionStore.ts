@@ -135,10 +135,10 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
         return;
       }
 
-      const response = await apiService.getPendingSubmissions(token) as { submissions: Submission[] };
+      const response = await apiService.getPendingSubmissions(token) as Submission[];
       
       set({
-        submissions: response.submissions || [],
+        submissions: response || [],
         loading: false,
         error: null
       });
@@ -358,10 +358,10 @@ export const useSubmissionStore = create<SubmissionState>((set, get) => ({
         return;
       }
 
-      const response = await apiService.getAvailableReviewers(token) as { reviewers: UserSummary[] };
+      const response = await apiService.getAvailableReviewers(token) as UserSummary[];
       
       set({
-        availableReviewers: response.reviewers || [],
+        availableReviewers: response || [],
         loading: false,
         error: null
       });
