@@ -175,6 +175,13 @@ async def create_submission(
         # Handle reviewer assignment if provided
         reviewer_id = None
         if submission_data.reviewer_username:
+            # Prevent self-review
+            if submission_data.reviewer_username == current_user.username:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You cannot assign yourself as a reviewer for your own code"
+                )
+            
             # Find the reviewer by username (any user can be a reviewer)
             reviewer_query = select(User).where(
                 User.username == submission_data.reviewer_username
@@ -265,6 +272,13 @@ async def create_code_review(
         # Handle reviewer assignment if provided
         reviewer_id = None
         if submission_data.reviewer_username:
+            # Prevent self-review
+            if submission_data.reviewer_username == current_user.username:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You cannot assign yourself as a reviewer for your own code"
+                )
+            
             # Find the reviewer by username (any user can be a reviewer)
             reviewer_query = select(User).where(
                 User.username == submission_data.reviewer_username

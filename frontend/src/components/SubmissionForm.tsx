@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSubmissionStore } from '../store/submissionStore';
+import { useAuthStore } from '../store/authStore';
 import { SubmissionCreate, UserSummary } from '../types/submissions';
 
 interface SubmissionFormProps {
@@ -28,6 +29,12 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   const [showReviewerDropdown, setShowReviewerDropdown] = useState(false);
   
   const { createCodeReview, availableReviewers, fetchAvailableReviewers, error, clearError } = useSubmissionStore();
+  const { user: currentUser } = useAuthStore();
+
+  // Filter out the current user from available reviewers
+  const filteredReviewers = availableReviewers.filter(
+    reviewer => reviewer.username !== currentUser?.username
+  );
 
   useEffect(() => {
     fetchAvailableReviewers();
@@ -37,6 +44,12 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
     e.preventDefault();
     
     if (!title.trim()) {
+      return;
+    }
+
+    // Prevent self-review
+    if (reviewerUsername.trim() === currentUser?.username) {
+      setReviewerUsername('');
       return;
     }
 
@@ -71,6 +84,18 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
   const handleReviewerSelect = (username: string) => {
     setReviewerUsername(username);
     setShowReviewerDropdown(false);
+  };
+
+  const handleReviewerInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    
+    // Clear the field if user tries to type their own username
+    if (value.trim() === currentUser?.username) {
+      setReviewerUsername('');
+      return;
+    }
+    
+    setReviewerUsername(value);
   };
 
   const handleInputBlur = () => {
@@ -146,7 +171,7 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
                 type="text"
                 id="reviewer"
                 value={reviewerUsername}
-                onChange={(e) => setReviewerUsername(e.target.value)}
+                onChange={handleReviewerInputChange}
                 onFocus={() => setShowReviewerDropdown(true)}
                 onBlur={handleInputBlur}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
@@ -168,8 +193,8 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
                 className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto" 
                 onClick={(e) => e.stopPropagation()}
               >
-                {availableReviewers.length > 0 ? (
-                  availableReviewers.map((reviewer) => (
+                {filteredReviewers.length > 0 ? (
+                  filteredReviewers.map((reviewer) => (
                     <button
                       key={reviewer.id}
                       type="button"
@@ -186,11 +211,15 @@ const SubmissionForm: React.FC<SubmissionFormProps> = ({
                   ))
                 ) : (
                   <div className="px-4 py-2 text-gray-500 dark:text-gray-400 text-sm">
-                    No reviewers available
+                    {availableReviewers.length > 0 ? 'No other reviewers available' : 'No reviewers available'}
                   </div>
                 )}
               </div>
             )}
+          </div>
+          
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            You cannot assign yourself as a reviewer for your own code.
           </div>
 
           {error && (
