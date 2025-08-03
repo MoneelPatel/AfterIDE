@@ -264,8 +264,10 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         'editor.background': '#1e1e1e',
         'editor.foreground': '#d4d4d4',
         'editor.lineHighlightBackground': '#2a2d2e',
+        'editor.lineHighlightBorder': '#007acc',
         'editor.selectionBackground': '#264f78',
-        'editor.inactiveSelectionBackground': '#3a3d41'
+        'editor.inactiveSelectionBackground': '#3a3d41',
+        'editorCursor.foreground': '#d4d4d4'
       }
     });
 
@@ -283,8 +285,10 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         'editor.background': '#ffffff',
         'editor.foreground': '#000000',
         'editor.lineHighlightBackground': '#f7f7f7',
+        'editor.lineHighlightBorder': '#007acc',
         'editor.selectionBackground': '#add6ff',
-        'editor.inactiveSelectionBackground': '#e5ebf1'
+        'editor.inactiveSelectionBackground': '#e5ebf1',
+        'editorCursor.foreground': '#000000'
       }
     });
   };
@@ -587,7 +591,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           cursorSmoothCaretAnimation: 'on',
           renderWhitespace: 'selection',
           renderControlCharacters: false,
-          renderLineHighlight: 'all',
+          renderLineHighlight: 'line',
           selectOnLineNumbers: true,
           useTabStops: false,
           tabSize: 4,
