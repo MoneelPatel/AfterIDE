@@ -20,6 +20,7 @@ interface MonacoEditorProps {
   onSave?: () => void;
   autoSave?: boolean;
   autoSaveDelay?: number;
+  showMinimap?: boolean;
 }
 
 interface EditorState {
@@ -37,7 +38,8 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   height = '100%',
   onSave,
   autoSave = true,
-  autoSaveDelay = 2000
+  autoSaveDelay = 2000,
+  showMinimap = true
 }) => {
   const { theme } = useTheme();
   const { sendFilesMessage, filesConnected } = useWebSocket();
@@ -537,6 +539,15 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [value]);
 
+  // Update minimap setting when prop changes
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.updateOptions({
+        minimap: { enabled: showMinimap }
+      });
+    }
+  }, [showMinimap]);
+
   return (
     <div className="monaco-editor-container h-full w-full">
       <Editor
@@ -549,7 +560,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         theme={theme === 'dark' ? 'afteride-dark' : 'afteride-light'}
         options={{
           readOnly: readOnly,
-          minimap: { enabled: true },
+          minimap: { enabled: showMinimap },
           scrollBeyondLastLine: false,
           fontSize: 14,
           fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',

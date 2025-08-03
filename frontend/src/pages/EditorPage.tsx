@@ -48,7 +48,6 @@ interface EditorSettingsConfig {
   fontFamily: string;
   tabSize: number;
   insertSpaces: boolean;
-  wordWrap: 'on' | 'off' | 'wordWrapColumn' | 'bounded';
   minimap: boolean;
   lineNumbers: 'on' | 'off' | 'relative';
   renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
@@ -120,7 +119,6 @@ const EditorPage: React.FC = () => {
   // Editor state
   const [isDirty, setIsDirty] = useState(false)
   const [showMinimap, setShowMinimap] = useState(true)
-  const [wordWrap, setWordWrap] = useState(true)
   const [findQuery, setFindQuery] = useState('')
   const [replaceQuery, setReplaceQuery] = useState('')
 
@@ -131,7 +129,6 @@ const EditorPage: React.FC = () => {
     fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
     tabSize: 4,
     insertSpaces: true,
-    wordWrap: 'on',
     minimap: true,
     lineNumbers: 'on',
     renderWhitespace: 'selection',
@@ -935,18 +932,12 @@ const EditorPage: React.FC = () => {
     setShowMinimap(!showMinimap)
   }
 
-  const handleToggleWordWrap = () => {
-    setWordWrap(!wordWrap)
-  }
-
-
   const handleOpenSettings = () => {
     setShowSettings(true)
   }
 
   const handleSettingsChange = (newSettings: EditorSettingsConfig) => {
     setEditorSettings(newSettings)
-    setWordWrap(newSettings.wordWrap === 'on')
   }
 
   // Submission handlers
@@ -1004,12 +995,10 @@ const EditorPage: React.FC = () => {
         onFind={handleFind}
         onReplace={handleReplace}
         onToggleMinimap={handleToggleMinimap}
-        onToggleWordWrap={handleToggleWordWrap}
         onOpenSettings={handleOpenSettings}
         onSubmitForReview={handleSubmitForReview}
         isDirty={isDirty}
         showMinimap={showMinimap}
-        wordWrap={wordWrap}
         findQuery={findQuery}
         replaceQuery={replaceQuery}
         onFindQueryChange={setFindQuery}
@@ -1051,6 +1040,7 @@ const EditorPage: React.FC = () => {
                   autoSave={true}
                   autoSaveDelay={2000}
                   height="100%"
+                  showMinimap={showMinimap}
                 />
               )
             })() : (

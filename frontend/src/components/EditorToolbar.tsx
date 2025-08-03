@@ -19,12 +19,10 @@ interface EditorToolbarProps {
   onFind: (query: string, replace?: string) => void;
   onReplace: (query: string, replace: string) => void;
   onToggleMinimap: () => void;
-  onToggleWordWrap: () => void;
   onOpenSettings: () => void;
   onSubmitForReview?: () => void;
   isDirty: boolean;
   showMinimap: boolean;
-  wordWrap: boolean;
   findQuery: string;
   replaceQuery: string;
   onFindQueryChange: (query: string) => void;
@@ -37,12 +35,10 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onFind,
   onReplace,
   onToggleMinimap,
-  onToggleWordWrap,
   onOpenSettings,
   onSubmitForReview,
   isDirty,
   showMinimap,
-  wordWrap,
   findQuery,
   replaceQuery,
   onFindQueryChange,
@@ -229,21 +225,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <EyeSlashIcon className="w-4 h-4 mr-1" />
           )}
           Minimap
-        </button>
-
-        <button
-          onClick={onToggleWordWrap}
-          className={`
-            flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-            ${wordWrap 
-              ? 'bg-blue-600 text-white hover:bg-blue-700' 
-              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }
-          `}
-          title="Toggle word wrap"
-        >
-          <Cog6ToothIcon className="w-4 h-4 mr-1" />
-          Wrap
         </button>
 
         <button

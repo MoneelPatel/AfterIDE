@@ -12,7 +12,6 @@ interface EditorSettings {
   fontFamily: string;
   tabSize: number;
   insertSpaces: boolean;
-  wordWrap: 'on' | 'off' | 'wordWrapColumn' | 'bounded';
   minimap: boolean;
   lineNumbers: 'on' | 'off' | 'relative';
   renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
@@ -60,7 +59,6 @@ const EditorSettings: React.FC<EditorSettingsProps> = ({
       fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
       tabSize: 4,
       insertSpaces: true,
-      wordWrap: 'on',
       minimap: true,
       lineNumbers: 'on',
       renderWhitespace: 'selection',
@@ -192,22 +190,6 @@ const EditorSettings: React.FC<EditorSettingsProps> = ({
                   <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {localSettings.tabSize} spaces
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Word Wrap
-                  </label>
-                  <select
-                    value={localSettings.wordWrap}
-                    onChange={(e) => handleSettingChange('wordWrap', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                    <option value="wordWrapColumn">Word Wrap Column</option>
-                    <option value="bounded">Bounded</option>
-                  </select>
                 </div>
 
                 <div>
