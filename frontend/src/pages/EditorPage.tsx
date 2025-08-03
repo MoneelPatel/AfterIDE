@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import MonacoEditor from '../components/MonacoEditor'
+import CodeMirrorEditor from '../components/CodeMirrorEditor'
 import { Play, Settings, Save, FileText, Folder, FolderOpen, Plus, Search, Terminal as TerminalIcon, X, Menu, Sun, Moon, Code, GitBranch } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTheme } from '../contexts/ThemeContext'
 import FileTree from '../components/FileTree'
 import FileTabs from '../components/FileTabs'
 import EditorToolbar from '../components/EditorToolbar'
-import EditorSettings from '../components/EditorSettings'
 import XTerminal from '../components/XTerminal'
 import SubmissionForm from '../components/SubmissionForm'
 import { useWebSocket } from '../contexts/WebSocketContext'
@@ -43,20 +42,6 @@ interface FileTab {
   isActive: boolean
 }
 
-interface EditorSettingsConfig {
-  fontSize: number;
-  fontFamily: string;
-  tabSize: number;
-  insertSpaces: boolean;
-  minimap: boolean;
-  lineNumbers: 'on' | 'off' | 'relative';
-  renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
-  cursorBlinking: 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
-  cursorSmoothCaretAnimation: 'on' | 'off';
-  autoSave: boolean;
-  autoSaveDelay: number;
-  theme: 'light' | 'dark' | 'afteride-light' | 'afteride-dark';
-}
 
 const EditorPage: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([])
@@ -118,26 +103,19 @@ const EditorPage: React.FC = () => {
 
   // Editor state
   const [isDirty, setIsDirty] = useState(false)
-  const [showMinimap, setShowMinimap] = useState(true)
+  const [originalFileContent, setOriginalFileContent] = useState('')
+  const [isLoadingFileContent, setIsLoadingFileContent] = useState(false)
+  const [allowDirtyStateChanges, setAllowDirtyStateChanges] = useState(true)
+  const [isInitialLoad, setIsInitialLoad] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [replaceQuery, setReplaceQuery] = useState('')
 
-  // Settings state
-  const [showSettings, setShowSettings] = useState(false)
-  const [editorSettings, setEditorSettings] = useState<EditorSettingsConfig>({
-    fontSize: 14,
-    fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-    tabSize: 4,
-    insertSpaces: true,
-    minimap: true,
-    lineNumbers: 'on',
-    renderWhitespace: 'selection',
-    cursorBlinking: 'blink',
-    cursorSmoothCaretAnimation: 'on',
-    autoSave: true,
-    autoSaveDelay: 2000,
-    theme: 'afteride-dark'
-  })
+  // Use refs to track loading state more reliably
+  const isLoadingRef = useRef(false)
+  const isInitialLoadRef = useRef(false)
+  const allowDirtyChangesRef = useRef(true)
+  const originalFileContentRef = useRef('')
+
 
   // Submission state
   const [showSubmissionForm, setShowSubmissionForm] = useState(false)
@@ -363,8 +341,37 @@ const EditorPage: React.FC = () => {
           }
         }
       } else if (message.type === 'file_content') {
-        // Set file content when loaded from backend
-        setFileContent(message.content || '')
+        // Set states directly without setTimeout for better timing
+        const content = message.content || '';
+        console.log('🔧 File content received:', { 
+          filename: message.filename, 
+          contentLength: content.length,
+          wasLoading: isLoadingFileContent,
+          selectedFile: selectedFile?.path,
+          isInitialLoad: isInitialLoad
+        });
+        
+        // Set states directly without setTimeout for better timing
+        setFileContent(content)
+        setOriginalFileContent(content) // Set original content - THIS IS THE IMPORTANT BASELINE
+        setIsLoadingFileContent(false) // Content loading complete
+        setAllowDirtyStateChanges(true) // Re-enable dirty state changes now that content is loaded
+        setIsInitialLoad(false) // Clear initial load flag now that content is loaded
+        
+        // Update refs for immediate access
+        isLoadingRef.current = false
+        isInitialLoadRef.current = false
+        allowDirtyChangesRef.current = true
+        originalFileContentRef.current = content // Set ref for immediate access
+        
+        console.log('🔧 BASELINE SET - originalFileContent now:', content.length, 'chars for:', message.filename);
+        console.log('🔧 State flags cleared - isLoadingFileContent: false, allowDirtyStateChanges: true, isInitialLoad: false');
+        console.log('🔧 Refs updated - isLoadingRef: false, isInitialLoadRef: false, allowDirtyChangesRef: true, originalFileContentRef:', content.length);
+        
+        // Add a small delay to ensure state updates are processed
+        setTimeout(() => {
+          console.log('🔧 State update delay completed - flags should now be properly set');
+        }, 10);
       } else if (message.type === 'file_updated') {
         console.log('🔧 File update message received:', message.filename, message.language, 'content length:', message.content?.length)
         
@@ -383,7 +390,9 @@ const EditorPage: React.FC = () => {
           // Update current file content if it's the selected file
           if (selectedFile?.path === message.filename) {
             setFileContent(message.content)
+            setOriginalFileContent(message.content) // Set original content
             setIsDirty(false)
+            setIsLoadingFileContent(false) // Content loading complete
             
             // Update tab dirty state
             setOpenTabs(prev => prev.map(tab => 
@@ -602,9 +611,22 @@ const EditorPage: React.FC = () => {
   }
 
   const handleFileSelect = (file: FileNode) => {
-    // console.log('🔍 handleFileSelect called with:', file.path, file.name)
+    console.log('🔍 handleFileSelect called with:', file.path, file.name)
     setSelectedFile(file)
     setIsDirty(false)
+    // DON'T set originalFileContent here - wait for backend response
+    setOriginalFileContent('') // Clear it so dirty state doesn't trigger until we have real content
+    setIsLoadingFileContent(true) // Start loading content
+    setAllowDirtyStateChanges(false) // Temporarily disable dirty state changes
+    setIsInitialLoad(true) // Mark as initial load to prevent first change event from setting dirty state
+    
+    // Update refs for immediate access
+    isLoadingRef.current = true
+    isInitialLoadRef.current = true
+    allowDirtyChangesRef.current = false
+    originalFileContentRef.current = '' // Clear original content ref
+    
+    console.log('🔧 Set isLoadingFileContent to true for:', file.path);
 
     // Load file content from backend if it's a file
     if (file.type === 'file') {
@@ -612,8 +634,26 @@ const EditorPage: React.FC = () => {
         type: 'file_request',
         filename: file.path
       })
+      
+      // Re-enable dirty state changes after a longer delay as fallback
+      setTimeout(() => {
+        setAllowDirtyStateChanges(true)
+        setIsLoadingFileContent(false)
+        setIsInitialLoad(false) // Clear initial load flag
+        allowDirtyChangesRef.current = true
+        isLoadingRef.current = false
+        isInitialLoadRef.current = false
+        console.log('🔧 Re-enabled dirty state changes after timeout (fallback)')
+      }, 2000) // Increased timeout to give more time for content to load
     } else {
       setFileContent('')
+      setIsLoadingFileContent(false) // Not loading for folders
+      setAllowDirtyStateChanges(true) // Re-enable for folders immediately
+      setIsInitialLoad(false) // Clear initial load flag for folders
+      allowDirtyChangesRef.current = true
+      isLoadingRef.current = false
+      isInitialLoadRef.current = false
+      console.log('🔧 Set isLoadingFileContent to false for folder:', file.path);
     }
 
     // Add to tabs if not already open
@@ -811,13 +851,26 @@ const EditorPage: React.FC = () => {
     })
   }
 
-  const handleFileSave = () => {
+  const handleFileSave = (editorContent?: string) => {
+    console.log('🔧 handleFileSave called with editorContent:', editorContent);
+    console.log('🔧 Current isDirty state:', isDirty);
+    
     if (!selectedFile) return
+
+    // Handle case where editorContent might be an event object (from button click)
+    let contentToSave: string;
+    if (typeof editorContent === 'string') {
+      contentToSave = editorContent;
+    } else {
+      // If editorContent is not a string (e.g., event object), use current fileContent
+      contentToSave = fileContent;
+      console.log('🔧 Using current fileContent instead of editorContent parameter');
+    }
 
     const updateFileContent = (files: FileNode[]): FileNode[] => {
       return files.map(file => {
         if (file.id === selectedFile.id) {
-          return { ...file, content: fileContent }
+          return { ...file, content: contentToSave }
         }
         if (file.children) {
           file.children = updateFileContent(file.children)
@@ -827,17 +880,36 @@ const EditorPage: React.FC = () => {
     }
 
     setFiles(updateFileContent)
-    setSelectedFile(prev => prev ? { ...prev, content: fileContent } : null)
+    setSelectedFile(prev => prev ? { ...prev, content: contentToSave } : null)
     setIsDirty(false)
+
+    // Update the fileContent state to match what was saved
+    if (typeof editorContent === 'string') {
+      setFileContent(editorContent);
+    }
+    
+    // Update original content to the saved content
+    setOriginalFileContent(contentToSave);
+    originalFileContentRef.current = contentToSave; // Update ref as well
 
     // Update tab dirty state
     setOpenTabs(prev => prev.map(tab => 
       tab.id === selectedFile.id ? { ...tab, isDirty: false } : tab
     ))
 
-    // Note: File saving to backend is already handled by Monaco Editor
-    // Monaco Editor gets the content directly from the editor and sends file_update
-    // This function only updates the UI state
+    // Send file update to backend via WebSocket
+    if (filesConnected && selectedFile.path) {
+      const message = {
+        type: 'file_update',
+        filename: selectedFile.path,
+        content: contentToSave,
+        language: getLanguageFromFileName(selectedFile.name || '')
+      };
+      console.log('🔧 Sending file update message:', message);
+      sendFilesMessage(message);
+    } else {
+      console.error('🔧 Files WebSocket not connected or no file path!');
+    }
   }
 
   const handleTabSelect = (tabId: string) => {
@@ -848,6 +920,17 @@ const EditorPage: React.FC = () => {
     if (file) {
       setSelectedFile(file)
       setIsDirty(false)
+      // DON'T set originalFileContent here - wait for backend response
+      setOriginalFileContent('') // Clear it so dirty state doesn't trigger until we have real content
+      setIsLoadingFileContent(true) // Start loading content
+      setAllowDirtyStateChanges(false) // Temporarily disable dirty state changes
+      setIsInitialLoad(true) // Mark as initial load to prevent first change event from setting dirty state
+      
+      // Update refs for immediate access
+      isLoadingRef.current = true
+      isInitialLoadRef.current = true
+      allowDirtyChangesRef.current = false
+      originalFileContentRef.current = '' // Clear original content ref
       
       // Always request fresh content from backend instead of using cached content
       if (file.type === 'file') {
@@ -855,8 +938,25 @@ const EditorPage: React.FC = () => {
           type: 'file_request',
           filename: file.path
         })
+        
+        // Re-enable dirty state changes after a longer delay as fallback
+        setTimeout(() => {
+          setAllowDirtyStateChanges(true)
+          setIsLoadingFileContent(false)
+          setIsInitialLoad(false) // Clear initial load flag
+          allowDirtyChangesRef.current = true
+          isLoadingRef.current = false
+          isInitialLoadRef.current = false
+          console.log('🔧 Re-enabled dirty state changes after timeout (tab select fallback)')
+        }, 2000) // Increased timeout to match handleFileSelect
       } else {
         setFileContent('')
+        setIsLoadingFileContent(false) // Not loading for folders
+        setAllowDirtyStateChanges(true) // Re-enable for folders immediately
+        setIsInitialLoad(false) // Clear initial load flag for folders
+        allowDirtyChangesRef.current = true
+        isLoadingRef.current = false
+        isInitialLoadRef.current = false
       }
     }
 
@@ -898,14 +998,64 @@ const EditorPage: React.FC = () => {
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined) return; // Handle case where value is undefined (e.g., initial load)
+    
+    console.log('🔧 handleEditorChange v4 SIMPLE:', { 
+      originalFileContent: originalFileContent.length, 
+      originalFileContentRef: originalFileContentRef.current.length,
+      newValue: value.length,
+      selectedFile: selectedFile?.path,
+      areEqual: value === originalFileContent,
+      areEqualRef: value === originalFileContentRef.current,
+      allowDirtyStateChanges,
+      isLoadingFileContent,
+      isInitialLoad,
+      // Add ref values for debugging
+      isLoadingRef: isLoadingRef.current,
+      isInitialLoadRef: isInitialLoadRef.current,
+      allowDirtyChangesRef: allowDirtyChangesRef.current
+    });
+    
     setFileContent(value)
-    setIsDirty(true)
-
-    // Update tab dirty state
-    if (selectedFile) {
-      setOpenTabs(prev => prev.map(tab => 
-        tab.id === selectedFile.id ? { ...tab, isDirty: true } : tab
-      ))
+    
+    // Use refs for more reliable state checking
+    if (isInitialLoadRef.current || !allowDirtyChangesRef.current || isLoadingRef.current) {
+      console.log('🔧 Skipping dirty state change - using refs for reliable state checking');
+      console.log('🔧 Debug refs:', { 
+        isInitialLoadRef: isInitialLoadRef.current, 
+        allowDirtyChangesRef: allowDirtyChangesRef.current, 
+        isLoadingRef: isLoadingRef.current 
+      });
+      return;
+    }
+    
+    // Use ref for original content to avoid async state issues
+    const originalContent = originalFileContentRef.current;
+    
+    // Simple approach: only set dirty if content differs AND original content exists
+    if (originalContent && value !== originalContent) {
+      console.log('🔧 Setting dirty state TRUE - content differs (using ref)');
+      console.log('🔧 Original content length (ref):', originalContent.length, 'New content length:', value.length);
+      setIsDirty(true)
+      
+      // Update tab dirty state
+      if (selectedFile) {
+        setOpenTabs(prev => prev.map(tab => 
+          tab.id === selectedFile.id ? { ...tab, isDirty: true } : tab
+        ))
+      }
+    } else if (originalContent && value === originalContent) {
+      console.log('🔧 Setting dirty state FALSE - content matches original (using ref)');
+      setIsDirty(false)
+      
+      // Update tab dirty state
+      if (selectedFile) {
+        setOpenTabs(prev => prev.map(tab => 
+          tab.id === selectedFile.id ? { ...tab, isDirty: false } : tab
+        ))
+      }
+    } else {
+      console.log('🔧 No dirty state change - no original content yet (using ref)');
+      console.log('🔧 Original content exists (ref):', !!originalContent, 'Length (ref):', originalContent.length);
     }
   }
 
@@ -928,17 +1078,8 @@ const EditorPage: React.FC = () => {
     // Monaco Editor will handle the replace operation
   }
 
-  const handleToggleMinimap = () => {
-    setShowMinimap(!showMinimap)
-  }
 
-  const handleOpenSettings = () => {
-    setShowSettings(true)
-  }
 
-  const handleSettingsChange = (newSettings: EditorSettingsConfig) => {
-    setEditorSettings(newSettings)
-  }
 
   // Submission handlers
   const handleSubmitForReview = () => {
@@ -994,11 +1135,8 @@ const EditorPage: React.FC = () => {
         onSave={handleFileSave}
         onFind={handleFind}
         onReplace={handleReplace}
-        onToggleMinimap={handleToggleMinimap}
-        onOpenSettings={handleOpenSettings}
         onSubmitForReview={handleSubmitForReview}
         isDirty={isDirty}
-        showMinimap={showMinimap}
         findQuery={findQuery}
         replaceQuery={replaceQuery}
         onFindQueryChange={setFindQuery}
@@ -1028,31 +1166,20 @@ const EditorPage: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {/* Editor */}
           <div style={{ height: `${editorHeight}%` }} className="relative flex-shrink-0">
-            {selectedFile ? (() => {
-              return (
-                <MonacoEditor
-                  key={selectedFile.path}
-                  value={fileContent}
-                  onChange={handleEditorChange}
-                  language={getLanguageFromFileName(selectedFile.name || '')}
-                  filename={selectedFile.path}
-                  onSave={handleFileSave}
-                  autoSave={editorSettings.autoSave}
-                  autoSaveDelay={editorSettings.autoSaveDelay}
-                  height="100%"
-                  showMinimap={editorSettings.minimap}
-                  fontSize={editorSettings.fontSize}
-                  fontFamily={editorSettings.fontFamily}
-                  tabSize={editorSettings.tabSize}
-                  insertSpaces={editorSettings.insertSpaces}
-                  lineNumbers={editorSettings.lineNumbers}
-                  renderWhitespace={editorSettings.renderWhitespace}
-                  cursorBlinking={editorSettings.cursorBlinking}
-                  cursorSmoothCaretAnimation={editorSettings.cursorSmoothCaretAnimation}
-                  theme={editorSettings.theme}
-                />
-              )
-            })() : (
+            {selectedFile ? (
+              <CodeMirrorEditor
+                key={selectedFile.path}
+                value={fileContent}
+                onChange={handleEditorChange}
+                language={getLanguageFromFileName(selectedFile.name || '')}
+                filename={selectedFile.path}
+                height="100%"
+                theme={theme}
+                onSave={handleFileSave}
+                autoSave={false}
+                autoSaveDelay={2000}
+              />
+            ) : (
               <div className="h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900">
                 <div className="text-center">
                   <div className="text-6xl mb-4">📝</div>
@@ -1085,13 +1212,6 @@ const EditorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Editor Settings Modal */}
-      <EditorSettings
-        settings={editorSettings}
-        onSettingsChange={handleSettingsChange}
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-      />
 
       {/* Submission Form Modal */}
       {showSubmissionForm && selectedFile && (

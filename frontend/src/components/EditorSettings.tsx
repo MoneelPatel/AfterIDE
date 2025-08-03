@@ -19,7 +19,7 @@ interface EditorSettings {
   cursorSmoothCaretAnimation: 'on' | 'off';
   autoSave: boolean;
   autoSaveDelay: number;
-  theme: 'light' | 'dark' | 'afteride-light' | 'afteride-dark';
+  theme: 'light' | 'dark' | 'afteride-light' | 'afteride-dark' | 'vs' | 'vs-dark' | 'custom-vs-light' | 'custom-vs-dark';
 }
 
 interface EditorSettingsProps {

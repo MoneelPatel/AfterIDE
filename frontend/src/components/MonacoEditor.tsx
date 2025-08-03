@@ -301,8 +301,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         'editor.foreground': '#d4d4d4',
         'editor.lineHighlightBackground': '#2a2d2e',
         'editor.lineHighlightBorder': '#2a2d2e',
-        'editor.selectionBackground': '#264f78',
-        'editor.inactiveSelectionBackground': '#3a3d41',
+        'editor.selectionBackground': '#0078d4',
+        'editor.selectionForeground': '#ffffff',
+        'editor.inactiveSelectionBackground': '#454545',
+        'editor.selectionHighlightBackground': '#0078d430',
+        'editor.wordHighlightBackground': '#57534e40',
+        'editor.wordHighlightStrongBackground': '#57534e80',
         'editorCursor.foreground': '#d4d4d4',
         'editorWhitespace.foreground': '#3a3a3a',
         'editorIndentGuide.background': '#3a3a3a',
@@ -342,8 +346,12 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         'editor.foreground': '#000000',
         'editor.lineHighlightBackground': '#f7f7f7',
         'editor.lineHighlightBorder': '#f7f7f7',
-        'editor.selectionBackground': '#add6ff',
-        'editor.inactiveSelectionBackground': '#e5ebf1',
+        'editor.selectionBackground': '#0078d4',
+        'editor.selectionForeground': '#ffffff',
+        'editor.inactiveSelectionBackground': '#cccccc',
+        'editor.selectionHighlightBackground': '#0078d430',
+        'editor.wordHighlightBackground': '#57534e40',
+        'editor.wordHighlightStrongBackground': '#57534e80',
         'editorCursor.foreground': '#000000',
         'editorWhitespace.foreground': '#e3e3e3',
         'editorIndentGuide.background': '#e3e3e3',
@@ -361,12 +369,52 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
         'editorOverviewRuler.infoForeground': '#75beff'
       }
     });
+
+    // Keep it simple - no custom themes
   };
 
   // Handle editor mount
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     
+    // Force enable text selection
+    const editorDom = editor.getDomNode();
+    if (editorDom) {
+      // Make the entire editor selectable
+      editorDom.style.userSelect = 'text';
+      (editorDom.style as any).webkitUserSelect = 'text';
+      (editorDom.style as any).mozUserSelect = 'text';
+      
+      // Function to make elements selectable
+      const makeElementsSelectable = () => {
+        const textElements = editorDom.querySelectorAll('.view-line, .view-line span, .mtk1, .mtk2, .mtk3, .mtk4, .mtk5, .mtk6, .mtk7, .mtk8, .mtk9');
+        textElements.forEach(element => {
+          const el = element as HTMLElement;
+          el.style.userSelect = 'text';
+          (el.style as any).webkitUserSelect = 'text';
+          (el.style as any).mozUserSelect = 'text';
+        });
+      };
+
+      // Initial call
+      makeElementsSelectable();
+
+      // Watch for changes and reapply selection styles
+      const observer = new MutationObserver(() => {
+        makeElementsSelectable();
+      });
+
+      observer.observe(editorDom, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+
+      // Clean up observer when editor is destroyed
+      return () => observer.disconnect();
+    }
+
     // Set up keyboard shortcuts
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       handleSave();
@@ -630,22 +678,17 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     }
   }, [fontSize, fontFamily, lineNumbers, tabSize, insertSpaces, renderWhitespace, cursorBlinking, cursorSmoothCaretAnimation, showMinimap]);
 
-  // Update theme when it changes
+  // Update theme when it changes - simple approach
   useEffect(() => {
     if (editorRef.current && monacoRef.current) {
-      // Map our custom theme names to the actual defined themes
-      let themeName = theme;
-      if (theme === 'afteride-dark') {
-        themeName = 'afteride-dark';
-      } else if (theme === 'afteride-light') {
-        themeName = 'afteride-light';
-      } else if (theme === 'dark') {
-        themeName = 'vs-dark';
-      } else if (theme === 'light') {
-        themeName = 'vs';
+      // Just use the basic VS Code themes
+      if (theme === 'vs-dark' || theme === 'dark') {
+        monacoRef.current.editor.setTheme('vs-dark');
+      } else if (theme === 'vs' || theme === 'light') {
+        monacoRef.current.editor.setTheme('vs');
+      } else {
+        monacoRef.current.editor.setTheme(theme);
       }
-      
-      monacoRef.current.editor.setTheme(themeName);
     }
   }, [theme]);
 
@@ -700,6 +743,11 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
           trimAutoWhitespace: true,
           largeFileOptimizations: true,
           wordBasedSuggestions: true,
+          // Force selection to work
+          selectionHighlight: true,
+          occurrencesHighlight: true,
+          columnSelection: true,
+          multiCursorModifier: 'alt',
           // Disable features that cause visual artifacts
           overviewRulerBorder: false,
           overviewRulerLanes: 0,

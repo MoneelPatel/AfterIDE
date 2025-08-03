@@ -8,21 +8,15 @@ import React, { useState } from 'react';
 import {
   MagnifyingGlassIcon,
   DocumentArrowDownIcon,
-  Cog6ToothIcon,
-  EyeIcon,
-  EyeSlashIcon,
   PaperAirplaneIcon
 } from '@heroicons/react/24/outline';
 
 interface EditorToolbarProps {
-  onSave: () => void;
+  onSave: (content?: string) => void;
   onFind: (query: string, replace?: string) => void;
   onReplace: (query: string, replace: string) => void;
-  onToggleMinimap: () => void;
-  onOpenSettings: () => void;
   onSubmitForReview?: () => void;
   isDirty: boolean;
-  showMinimap: boolean;
   findQuery: string;
   replaceQuery: string;
   onFindQueryChange: (query: string) => void;
@@ -34,11 +28,8 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onSave,
   onFind,
   onReplace,
-  onToggleMinimap,
-  onOpenSettings,
   onSubmitForReview,
   isDirty,
-  showMinimap,
   findQuery,
   replaceQuery,
   onFindQueryChange,
@@ -88,7 +79,7 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
       {/* Left side - File operations */}
       <div className="flex items-center space-x-2">
         <button
-          onClick={onSave}
+          onClick={() => onSave()}
           disabled={!isDirty}
           className={`
             flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors
@@ -208,33 +199,6 @@ const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       {/* Right side - Editor options */}
       <div className="flex items-center space-x-2">
-        <button
-          onClick={onToggleMinimap}
-          className={`
-            flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-            ${showMinimap 
-              ? 'bg-blue-600 text-white hover:bg-blue-700' 
-              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }
-          `}
-          title="Toggle minimap"
-        >
-          {showMinimap ? (
-            <EyeIcon className="w-4 h-4 mr-1" />
-          ) : (
-            <EyeSlashIcon className="w-4 h-4 mr-1" />
-          )}
-          Minimap
-        </button>
-
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-          title="Editor settings"
-        >
-          <Cog6ToothIcon className="w-4 h-4 mr-1" />
-          Settings
-        </button>
       </div>
     </div>
   );
