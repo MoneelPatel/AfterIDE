@@ -374,12 +374,8 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         
         // Only show completion messages and prompt for final results
         if (!isStreaming) {
-          // If no output, show a message
-          if (!message.stdout && !message.stderr) {
-            console.log('XTerminal: No output from command')
-            writeOutput('\r\n[Command executed - no output]', 'blue')
-          }
-          
+          // Command completed - just show prompt (output was already streamed in real-time)
+          console.log('XTerminal: Command completed')
           prompt()
         }
       } else if (message.type === 'input_request') {
