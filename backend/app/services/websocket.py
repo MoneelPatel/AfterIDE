@@ -271,7 +271,7 @@ class WebSocketManager:
             elif message.type == MessageType.INPUT_RESPONSE:
                 # Handle input response from frontend
                 input_msg = InputResponseMessage(**message_data)
-                session_id = input_msg.session_id
+                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
                 
                 logger.info(
                     "Input response received",
@@ -279,6 +279,13 @@ class WebSocketManager:
                     session_id=session_id,
                     input_length=len(input_msg.input)
                 )
+                
+                # Forward input to the waiting process
+                if session_id:
+                    logger.info(f"Forwarding input to session {session_id}: {input_msg.input}")
+                    await terminal_service.handle_input_response(session_id, input_msg.input)
+                else:
+                    logger.warning(f"No session_id found for connection {connection_id}, cannot send input")
                 
             elif message.type == MessageType.INTERRUPT:
                 # Handle interrupt signal (Ctrl+C)

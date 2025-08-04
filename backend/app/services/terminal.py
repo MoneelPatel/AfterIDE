@@ -79,6 +79,33 @@ class TerminalService:
         """Get terminal session information."""
         return self.sessions.get(session_id)
     
+    async def send_input_to_process(self, session_id: str, input_text: str) -> bool:
+        """Send input to a running process's stdin."""
+        try:
+            if session_id in self.active_processes:
+                process = self.active_processes[session_id]
+                
+                if process and process.returncode is None:  # Process is still running
+                    logger.info(f"Sending input to process in session {session_id}: {repr(input_text)}")
+                    
+                    # Send input to process stdin
+                    input_data = (input_text + '\n').encode('utf-8')
+                    process.stdin.write(input_data)
+                    await process.stdin.drain()
+                    
+                    logger.info(f"Input sent successfully to session {session_id}")
+                    return True
+                else:
+                    logger.warning(f"Process in session {session_id} is not running")
+                    return False
+            else:
+                logger.warning(f"No active process found for session {session_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send input to session {session_id}: {e}")
+            return False
+
     async def interrupt_session(self, session_id: str) -> Dict[str, Any]:
         """Interrupt any running process in the given session."""
         try:
@@ -849,9 +876,44 @@ class TerminalService:
                             current_line = ""  # Reset for next line
                             
                     except asyncio.TimeoutError:
-                        # Timeout while reading - check if process is still alive and continue
+                        # Timeout while reading - might be waiting for input, flush any buffered content
                         if process.returncode is not None:
                             break
+                        
+                        # If we have buffered content (like an input prompt), send it
+                        if current_line:
+                            logger.info(f"[STREAMING DEBUG] Timeout with buffered content, sending: {repr(current_line)}")
+                            stdout_data.append(current_line)
+                            if self.websocket_manager:
+                                response = CommandResponseMessage(
+                                    type=MessageType.COMMAND_RESPONSE,
+                                    command=f"python3 -u {file_path}",
+                                    stdout=current_line,
+                                    stderr="",
+                                    return_code=-1,  # -1 indicates still running
+                                    working_directory=cwd
+                                )
+                                await self.websocket_manager.broadcast_to_session(session_id, response)
+                            
+                            # Check if this looks like an input prompt (no newline, process still running)
+                            if process.returncode is None and not current_line.endswith('\n'):
+                                logger.info(f"[STREAMING DEBUG] Detected input prompt, storing process reference for session {session_id}")
+                                # Store the process reference so input can be sent to it
+                                session = self.get_session(session_id)
+                                if session:
+                                    session["waiting_process"] = process
+                                
+                                # Send input request message to frontend
+                                if self.websocket_manager:
+                                    input_request = InputRequestMessage(
+                                        type=MessageType.INPUT_REQUEST,
+                                        prompt=current_line,
+                                        session_id=session_id
+                                    )
+                                    await self.websocket_manager.broadcast_to_session(session_id, input_request)
+                            
+                            current_line = ""  # Clear after sending
+                        
                         continue
                             
                     except Exception as e:
@@ -930,6 +992,11 @@ class TerminalService:
             # Clean up process reference after completion
             if session_id in self.active_processes:
                 del self.active_processes[session_id]
+            
+            # Clear any waiting process reference
+            session = self.get_session(session_id)
+            if session:
+                session["waiting_process"] = None
             
             # Send final completion message (no output since it was already streamed)
             return {
@@ -2608,6 +2675,11 @@ class TerminalService:
             # Clean up process reference after completion
             if session_id in self.active_processes:
                 del self.active_processes[session_id]
+            
+            # Clear any waiting process reference
+            session = self.get_session(session_id)
+            if session:
+                session["waiting_process"] = None
             
             # Send final completion message (no output since it was already streamed)
             return {

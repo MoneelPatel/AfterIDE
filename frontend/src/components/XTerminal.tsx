@@ -565,9 +565,19 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         }
 
         // Allow input if we're waiting for user input, even if processing
+        // Also allow input during Python execution since Python might call input()
         if (isProcessingRef.current && !waitingForInputRef.current) {
-          console.log('XTerminal: Input blocked - processing command and not waiting for input')
-          return
+          // Check if this might be Python input - allow Enter key for Python processes
+          if (code === 13) { // Enter key
+            console.log('XTerminal: Allowing Enter key during Python execution for potential input()')
+            // Don't return - allow the Enter key to be processed
+          } else if (code >= 32) { // Printable characters
+            console.log('XTerminal: Allowing character input during Python execution:', String.fromCharCode(code))
+            // Don't return - allow character input
+          } else {
+            console.log('XTerminal: Input blocked - processing command and not waiting for input')
+            return
+          }
         }
 
         if (code === 13) { // Enter
@@ -578,6 +588,18 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           if (waitingForInputRef.current) {
             // We're waiting for input - send it to the backend
             console.log('XTerminal: Sending input to backend:', command)
+            sendTerminalMessage({
+              type: 'input_response',
+              input: command
+            })
+            terminal.write('\r\n')
+            return
+          }
+          
+          // If we're processing and not explicitly waiting for input, 
+          // this might still be Python input() - send as input_response
+          if (isProcessingRef.current) {
+            console.log('XTerminal: Sending potential Python input to backend:', command)
             sendTerminalMessage({
               type: 'input_response',
               input: command
