@@ -220,6 +220,7 @@ class WebSocketManager:
         try:
             # Validate message
             message = validate_message(message_data)
+            print(f"[DEBUG] Terminal WebSocket received message type: {message.type}")  # Debug all messages
             
             if message.type == MessageType.COMMAND:
                 # Handle terminal command
@@ -241,27 +242,53 @@ class WebSocketManager:
                     working_directory=command_msg.working_directory
                 )
                 
-                # Create response message
-                response = CommandResponseMessage(
-                    type=MessageType.COMMAND_RESPONSE,
-                    command=command_msg.command,
-                    stdout=result["stdout"],
-                    stderr=result["stderr"],
-                    return_code=result["return_code"],
-                    execution_time=result.get("execution_time", 0.0),
-                    working_directory=result.get("working_directory")
-                )
+                # Check if this was a streaming command (empty stdout/stderr means it was already streamed)
+                is_streaming_command = (result["stdout"] == "" and result["stderr"] == "")
                 
-                logger.info(
-                    "Sending command response",
-                    connection_id=connection_id,
-                    session_id=session_id,
-                    command=command_msg.command,
-                    working_directory=result.get("working_directory"),
-                    has_working_directory=bool(result.get("working_directory"))
-                )
-                
-                await self.send_message(connection_id, response)
+                # Only send final response if it wasn't already streamed
+                if not is_streaming_command:
+                    # Create response message
+                    response = CommandResponseMessage(
+                        type=MessageType.COMMAND_RESPONSE,
+                        command=command_msg.command,
+                        stdout=result["stdout"],
+                        stderr=result["stderr"],
+                        return_code=result["return_code"],
+                        execution_time=result.get("execution_time", 0.0),
+                        working_directory=result.get("working_directory")
+                    )
+                    
+                    logger.info(
+                        "Sending command response",
+                        connection_id=connection_id,
+                        session_id=session_id,
+                        command=command_msg.command,
+                        working_directory=result.get("working_directory"),
+                        has_working_directory=bool(result.get("working_directory"))
+                    )
+                    
+                    await self.send_message(connection_id, response)
+                else:
+                    # This was a streaming command - send only a completion signal with no output
+                    response = CommandResponseMessage(
+                        type=MessageType.COMMAND_RESPONSE,
+                        command=command_msg.command,
+                        stdout="",
+                        stderr="",
+                        return_code=result["return_code"],
+                        execution_time=result.get("execution_time", 0.0),
+                        working_directory=result.get("working_directory")
+                    )
+                    
+                    logger.info(
+                        "Sending streaming command completion signal",
+                        connection_id=connection_id,
+                        session_id=session_id,
+                        command=command_msg.command,
+                        return_code=result["return_code"]
+                    )
+                    
+                    await self.send_message(connection_id, response)
                 
             elif message.type == MessageType.PING:
                 # Handle ping
