@@ -31,6 +31,7 @@ class TerminalService:
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.command_history: Dict[str, List[str]] = {}
         self.working_directories: Dict[str, str] = {}
+        self.active_processes: Dict[str, asyncio.subprocess.Process] = {}  # Track active processes per session
         self.workspace_service = None  # Will be set by dependency injection
         self.websocket_manager = None  # Will be set by dependency injection
         
@@ -76,6 +77,57 @@ class TerminalService:
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get terminal session information."""
         return self.sessions.get(session_id)
+    
+    async def interrupt_session(self, session_id: str) -> Dict[str, Any]:
+        """Interrupt any running process in the given session."""
+        try:
+            if session_id in self.active_processes:
+                process = self.active_processes[session_id]
+                
+                if process and process.returncode is None:  # Process is still running
+                    logger.info(
+                        "Interrupting process in session",
+                        session_id=session_id,
+                        process_id=process.pid
+                    )
+                    
+                    # Send SIGINT to the process
+                    process.terminate()
+                    
+                    # Wait briefly for graceful termination
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        # Force kill if it doesn't terminate gracefully
+                        logger.warning(
+                            "Process didn't terminate gracefully, force killing",
+                            session_id=session_id,
+                            process_id=process.pid
+                        )
+                        process.kill()
+                        await process.wait()
+                    
+                    # Clean up the process reference
+                    del self.active_processes[session_id]
+                    
+                    logger.info(
+                        "Process interrupted successfully",
+                        session_id=session_id
+                    )
+                    
+                    return {"success": True, "message": "Process interrupted"}
+                else:
+                    return {"success": True, "message": "No active process to interrupt"}
+            else:
+                return {"success": True, "message": "No active process to interrupt"}
+                
+        except Exception as e:
+            logger.error(
+                "Failed to interrupt process",
+                session_id=session_id,
+                error=str(e)
+            )
+            return {"success": False, "error": str(e)}
     
     def validate_command(self, command: str) -> Tuple[bool, str]:
         """
@@ -232,7 +284,11 @@ class TerminalService:
             if len(self.command_history[session_id]) > 100:
                 self.command_history[session_id] = self.command_history[session_id][-100:]
             
-            logger.info("Executing command", session_id=session_id, command=command, working_dir=working_dir)
+            logger.info(f"[COMMAND DEBUG] Executing command: {command} for session {session_id} in {working_dir}")
+            
+            # Debug: Check what route this command will take
+            if command.strip().startswith("python "):
+                logger.info(f"[ROUTE DEBUG] Command '{command}' will go to _execute_python method")
             
             # Route to appropriate handler
             if command.strip() == "help":
@@ -681,141 +737,159 @@ class TerminalService:
     async def _execute_python_interactive(self, session_id: str, file_path: str, cwd: str, timeout: int) -> Dict[str, Any]:
         """Execute Python file with interactive input support."""
         try:
-            # Create the process
+            logger.info(f"[STREAMING DEBUG] Starting Python execution: python3 -u {file_path} in {cwd} for session {session_id}")
+            # Create the process with completely unbuffered output
             process = await asyncio.create_subprocess_exec(
-                "python3", file_path,
+                "python3", "-u", file_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE,
-                cwd=cwd
+                cwd=cwd,
+                env={
+                    **os.environ, 
+                    "PYTHONUNBUFFERED": "1", 
+                    "PYTHONIOENCODING": "utf-8"
+                },
+                # Force line buffering at OS level
+                bufsize=1
             )
+            logger.info(f"[STREAMING DEBUG] Process created with PID {process.pid} for session {session_id}")
             
-            # Get session for storing waiting process
-            session = self.get_session(session_id)
-            if not session:
-                session = self.create_session(session_id)
+            # Store process reference for interrupt handling
+            self.active_processes[session_id] = process
             
+            # Stream output in real-time
             stdout_data = []
             stderr_data = []
-            last_output_time = time.time()
             
-            # Start reading stdout and stderr
             async def read_stdout():
-                nonlocal last_output_time
+                """Read stdout character by character and send lines to frontend"""
+                current_line = ""
                 while True:
                     try:
-                        line = await asyncio.wait_for(process.stdout.readline(), timeout=0.1)
-                        if not line:
+                        # Read one character at a time to avoid blocking
+                        char_bytes = await process.stdout.read(1)
+                        if not char_bytes:
+                            logger.info(f"[STREAMING DEBUG] No more stdout data for session {session_id}")
+                            # Send any remaining line
+                            if current_line:
+                                stdout_data.append(current_line + '\n')
+                                if self.websocket_manager:
+                                    from app.schemas.websocket import CommandResponseMessage, MessageType
+                                    response = CommandResponseMessage(
+                                        type=MessageType.COMMAND_RESPONSE,
+                                        command=f"python3 -u {file_path}",
+                                        stdout=current_line + '\n',
+                                        stderr="",
+                                        return_code=-1,
+                                        working_directory=cwd
+                                    )
+                                    await self.websocket_manager.broadcast_to_session(session_id, response)
                             break
-                        stdout_data.append(line.decode('utf-8'))
-                        last_output_time = time.time()
-                    except asyncio.TimeoutError:
-                        # Check if process is still running
-                        if process.returncode is not None:
-                            break
-                        continue
-                    except Exception:
+                        
+                        char = char_bytes.decode('utf-8')
+                        current_line += char
+                        
+                        # When we hit a newline, send the line
+                        if char == '\n':
+                            line_str = current_line
+                            stdout_data.append(line_str)
+                            logger.info(f"[STREAMING DEBUG] Got stdout line for session {session_id}: {repr(line_str)}")
+                            
+                            # Send real-time output to frontend via WebSocket
+                            if self.websocket_manager:
+                                from app.schemas.websocket import CommandResponseMessage, MessageType
+                                response = CommandResponseMessage(
+                                    type=MessageType.COMMAND_RESPONSE,
+                                    command=f"python3 -u {file_path}",
+                                    stdout=line_str,
+                                    stderr="",
+                                    return_code=-1,  # -1 indicates still running
+                                    working_directory=cwd
+                                )
+                                logger.info(f"[STREAMING DEBUG] Sending real-time stdout to session {session_id}")
+                                await self.websocket_manager.broadcast_to_session(session_id, response)
+                            else:
+                                logger.warning(f"[STREAMING DEBUG] No websocket manager available for session {session_id}")
+                            
+                            current_line = ""  # Reset for next line
+                            
+                    except Exception as e:
+                        logger.error(f"[STREAMING DEBUG] Error reading stdout: {e}")
                         break
             
             async def read_stderr():
-                nonlocal last_output_time
+                """Read stderr line by line and send to frontend"""
                 while True:
                     try:
-                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        line = await process.stderr.readline()
                         if not line:
                             break
-                        stderr_data.append(line.decode('utf-8'))
-                        last_output_time = time.time()
-                    except asyncio.TimeoutError:
-                        # Check if process is still running
-                        if process.returncode is not None:
-                            break
-                        continue
-                    except Exception:
+                        line_str = line.decode('utf-8')
+                        stderr_data.append(line_str)
+                        
+                        # Send real-time error output to frontend via WebSocket
+                        if self.websocket_manager:
+                            from app.schemas.websocket import CommandResponseMessage, MessageType
+                            response = CommandResponseMessage(
+                                type=MessageType.COMMAND_RESPONSE,
+                                command=f"python3 -u {file_path}",
+                                stdout="",
+                                stderr=line_str,
+                                return_code=-1,  # -1 indicates still running
+                                working_directory=cwd
+                            )
+                            # Broadcast to session
+                            await self.websocket_manager.broadcast_to_session(session_id, response)
+                    except Exception as e:
+                        logger.error(f"Error reading stderr: {e}")
                         break
             
-            # Start reading tasks
+            # Start reading stdout and stderr concurrently
             stdout_task = asyncio.create_task(read_stdout())
             stderr_task = asyncio.create_task(read_stderr())
             
-            # Monitor for input waiting
-            async def monitor_input():
-                nonlocal last_output_time
-                while process.returncode is None:
-                    await asyncio.sleep(0.5)
-                    
-                    # If process has been running for more than 2 seconds without output, it might be waiting for input
-                    if time.time() - last_output_time > 2.0:
-                        # Check if we have any output that ends with a prompt-like pattern
-                        current_output = "".join(stdout_data)
-                        if current_output and (current_output.endswith("? ") or 
-                                             current_output.endswith(": ") or 
-                                             current_output.endswith("> ") or
-                                             "input" in current_output.lower()):
-                            
-                            # Store the waiting process in session
-                            session["waiting_process"] = process
-                            
-                            # Send input request to frontend
-                            if self.websocket_manager:
-                                input_request = InputRequestMessage(
-                                    type="input_request",
-                                    prompt=current_output.split('\n')[-1] if current_output else "",
-                                    session_id=session_id
-                                )
-                                
-                                # Broadcast to all connections in this session
-                                await self.websocket_manager.broadcast_to_session(session_id, input_request)
-                                
-                                logger.info("Sent input request to frontend", session_id=session_id)
-                            
-                            # Wait for input response (this will be handled by handle_input_response)
-                            # For now, just wait a bit longer
-                            await asyncio.sleep(5.0)
-                            break
-            
-            # Start monitoring task
-            monitor_task = asyncio.create_task(monitor_input())
-            
-            # Wait for process to complete or timeout
             try:
+                # Wait for process to complete or timeout
                 await asyncio.wait_for(process.wait(), timeout=timeout)
             except asyncio.TimeoutError:
-                # Process timed out - kill it
+                logger.warning(f"Process timed out after {timeout} seconds, terminating")
                 process.terminate()
                 try:
-                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                    await asyncio.wait_for(process.wait(), timeout=5)
                 except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
-                
-                # Cancel all tasks
-                stdout_task.cancel()
-                stderr_task.cancel()
-                monitor_task.cancel()
-                
-                return {
-                    "success": False,
-                    "stdout": "".join(stdout_data),
-                    "stderr": "".join(stderr_data) + f"\nCommand timed out after {timeout} seconds\n",
-                    "return_code": 1,
-                    "execution_time": timeout,
-                    "command": "python"
-                }
             
-            # Wait for all tasks to complete
-            await asyncio.gather(stdout_task, stderr_task, monitor_task, return_exceptions=True)
+            # Cancel reading tasks
+            stdout_task.cancel()
+            stderr_task.cancel()
             
-            # Clear any waiting process from session
-            session["waiting_process"] = None
+            # Wait for tasks to complete
+            try:
+                await stdout_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
+            
+            # Clean up process reference after completion
+            if session_id in self.active_processes:
+                del self.active_processes[session_id]
+            
+            # Send final completion message
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
             
             return {
                 "success": process.returncode == 0,
-                "stdout": "".join(stdout_data),
-                "stderr": "".join(stderr_data),
-                "return_code": process.returncode,
+                "stdout": final_stdout,
+                "stderr": final_stderr,
+                "return_code": process.returncode or 0,
                 "execution_time": 0.0,
-                "command": "python"
+                "command": f"python3 -u {file_path}"
             }
             
         except Exception as e:
@@ -2357,28 +2431,136 @@ class TerminalService:
             # Ensure the temp workspace directory exists
             os.makedirs(temp_workspace, exist_ok=True)
             
+            # Parse command to handle Python specially for unbuffered output
+            cmd_parts = shlex.split(command)
+            if cmd_parts and cmd_parts[0] in ['python', 'python3']:
+                # Add -u flag for unbuffered output if not already present
+                if '-u' not in cmd_parts:
+                    cmd_parts.insert(1, '-u')
+                env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            else:
+                env = os.environ.copy()
+            
             process = await asyncio.create_subprocess_exec(
-                *shlex.split(command),
+                *cmd_parts,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=temp_workspace
+                cwd=temp_workspace,
+                env=env
             )
             
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout
-            )
+            # Store process reference for interrupt handling
+            self.active_processes[session_id] = process
+            
+            # Stream output in real-time
+            stdout_data = []
+            stderr_data = []
+            
+            async def read_stdout():
+                """Read stdout line by line and send to frontend"""
+                while True:
+                    try:
+                        line = await process.stdout.readline()
+                        if not line:
+                            break
+                        line_str = line.decode('utf-8')
+                        stdout_data.append(line_str)
+                        
+                        # Send real-time output to frontend via WebSocket
+                        if self.websocket_manager:
+                            from app.schemas.websocket import CommandResponseMessage, MessageType
+                            response = CommandResponseMessage(
+                                type=MessageType.COMMAND_RESPONSE,
+                                command=command,
+                                stdout=line_str,
+                                stderr="",
+                                return_code=-1,  # -1 indicates still running
+                                working_directory=temp_workspace
+                            )
+                            # Broadcast to session
+                            await self.websocket_manager.broadcast_to_session(session_id, response)
+                    except Exception as e:
+                        logger.error(f"Error reading stdout: {e}")
+                        break
+            
+            async def read_stderr():
+                """Read stderr line by line and send to frontend"""
+                while True:
+                    try:
+                        line = await process.stderr.readline()
+                        if not line:
+                            break
+                        line_str = line.decode('utf-8')
+                        stderr_data.append(line_str)
+                        
+                        # Send real-time error output to frontend via WebSocket
+                        if self.websocket_manager:
+                            from app.schemas.websocket import CommandResponseMessage, MessageType
+                            response = CommandResponseMessage(
+                                type=MessageType.COMMAND_RESPONSE,
+                                command=command,
+                                stdout="",
+                                stderr=line_str,
+                                return_code=-1,  # -1 indicates still running
+                                working_directory=temp_workspace
+                            )
+                            # Broadcast to session
+                            await self.websocket_manager.broadcast_to_session(session_id, response)
+                    except Exception as e:
+                        logger.error(f"Error reading stderr: {e}")
+                        break
+            
+            # Start reading stdout and stderr concurrently
+            stdout_task = asyncio.create_task(read_stdout())
+            stderr_task = asyncio.create_task(read_stderr())
+            
+            try:
+                # Wait for process to complete or timeout
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"Process timed out after {timeout} seconds, terminating")
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+            
+            # Cancel reading tasks
+            stdout_task.cancel()
+            stderr_task.cancel()
+            
+            # Wait for tasks to complete
+            try:
+                await stdout_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
+            
+            # Clean up process reference after completion
+            if session_id in self.active_processes:
+                del self.active_processes[session_id]
+            
+            # Send final completion message
+            final_stdout = ''.join(stdout_data)
+            final_stderr = ''.join(stderr_data)
             
             return {
                 "success": process.returncode == 0,
-                "stdout": stdout.decode('utf-8'),
-                "stderr": stderr.decode('utf-8'),
-                "return_code": process.returncode,
+                "stdout": final_stdout,
+                "stderr": final_stderr,
+                "return_code": process.returncode or 0,
                 "execution_time": 0.0,
                 "command": command
             }
             
         except asyncio.TimeoutError:
+            # Clean up process reference on timeout
+            if session_id in self.active_processes:
+                del self.active_processes[session_id]
             return {
                 "success": False,
                 "stdout": "",
@@ -2388,6 +2570,9 @@ class TerminalService:
                 "command": command
             }
         except Exception as e:
+            # Clean up process reference on error
+            if session_id in self.active_processes:
+                del self.active_processes[session_id]
             return {
                 "success": False,
                 "stdout": "",

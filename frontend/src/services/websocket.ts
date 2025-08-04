@@ -118,16 +118,30 @@ class WebSocketClient {
    * Send message to WebSocket server
    */
   send(message: WebSocketMessage): void {
+    console.log('WebSocket send attempt:', {
+      isConnected: this.isConnected,
+      wsReadyState: this.ws?.readyState,
+      wsOpen: WebSocket.OPEN,
+      messageType: message.type
+    });
+    
     if (!this.isConnected) {
       // Queue message for later if not connected
+      console.log('WebSocket not connected, queuing message:', message);
       this.messageQueue.push(message);
       return;
     }
 
     try {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        console.log('Sending WebSocket message:', message);
         this.ws.send(JSON.stringify(message));
       } else {
+        console.log('WebSocket not ready, queuing message:', {
+          ws: !!this.ws,
+          readyState: this.ws?.readyState,
+          message
+        });
         this.messageQueue.push(message);
       }
     } catch (error) {

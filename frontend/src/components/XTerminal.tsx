@@ -36,8 +36,11 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   const { 
     terminalConnected, 
     sendTerminalMessage, 
+    sendFilesMessage,
     onTerminalMessage, 
-    offTerminalMessage 
+    offTerminalMessage,
+    onFilesMessage,
+    offFilesMessage
   } = useWebSocket()
 
   // Tab completion functions
@@ -75,8 +78,8 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       }, 2000) // 2 second timeout
 
       // Send file list request via WebSocket
-      sendTerminalMessage({
-        type: 'file_list_request',
+      sendFilesMessage({
+        type: 'file_list',
         directory: workingDirectoryRef.current
       })
 
@@ -95,7 +98,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           setFileSuggestions(fileNames)
           
           // Remove the handler
-          offTerminalMessage('file_list_response', handleFileListResponse)
+          offFilesMessage('file_list_response', handleFileListResponse)
           
           // Return filtered results
           if (!partial) resolve(fileNames)
@@ -105,9 +108,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         }
       }
       
-      onTerminalMessage('file_list_response', handleFileListResponse)
+      onFilesMessage('file_list_response', handleFileListResponse)
     })
-  }, [fileSuggestions, sendTerminalMessage, onTerminalMessage, offTerminalMessage])
+  }, [fileSuggestions, sendFilesMessage, onFilesMessage, offFilesMessage])
 
   const handleTabCompletion = useCallback(async () => {
     const terminal = xtermRef.current
@@ -123,6 +126,15 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     
     // Get suggestions for the current word
     const suggestions = await getFileSuggestions(currentWord)
+    
+    console.log('Tab completion debug:', {
+      currentLine,
+      cursorPos,
+      beforeCursor,
+      currentWord,
+      allSuggestions: suggestions,
+      filteredSuggestions: suggestions.filter(s => s.toLowerCase().startsWith(currentWord.toLowerCase()))
+    })
     
     if (suggestions.length === 0) {
       // No suggestions - just beep
@@ -141,8 +153,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       const newCursorPos = cursorPos + completionSuffix.length
       
       // Clear the current line and rewrite it
-      terminal.write('\r$ ' + ' '.repeat(currentLine.length) + '\r$ ')
-      terminal.write(newLine)
+      terminal.write('\r\x1b[K$ ' + newLine)
       
       // Update refs
       currentLineRef.current = newLine
@@ -193,8 +204,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     const newCursorPos = cursorPos + completionSuffix.length
     
     // Clear the current line and rewrite it
-    terminal.write('\r$ ' + ' '.repeat(currentLine.length) + '\r$ ')
-    terminal.write(newLine)
+    terminal.write('\r\x1b[K$ ' + newLine)
     
     // Update refs
     currentLineRef.current = newLine
@@ -320,15 +330,22 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       
       if (message.type === 'command_response') {
         console.log('XTerminal: Processing command response:', message)
-        isProcessingRef.current = false
         
-        // Update working directory if provided (for cd commands)
-        if (message.working_directory) {
-          console.log('XTerminal: Updating working directory to:', message.working_directory)
-          workingDirectoryRef.current = message.working_directory
+        // Check if this is streaming output (return_code -1) or final result
+        const isStreaming = message.return_code === -1
+        
+        if (!isStreaming) {
+          // Final command completion - stop processing
+          isProcessingRef.current = false
+          
+          // Update working directory if provided (for cd commands)
+          if (message.working_directory) {
+            console.log('XTerminal: Updating working directory to:', message.working_directory)
+            workingDirectoryRef.current = message.working_directory
+          }
         }
         
-        // Display stdout
+        // Display stdout (for both streaming and final)
         if (message.stdout) {
           console.log('XTerminal: Displaying stdout:', message.stdout)
           
@@ -338,26 +355,32 @@ const XTerminal: React.FC<XTerminalProps> = () => {
             xtermRef.current?.clear()
             writeOutput('Welcome to AfterIDE Terminal!', 'green')
             writeOutput('\r\nType "help" for available commands.')
-            prompt()
+            if (!isStreaming) prompt()
             return // Don't continue with normal output handling
           } else {
-            writeOutput('\r\n' + message.stdout)
+            // For streaming output, don't add extra newline at the beginning
+            const prefix = isStreaming ? '' : '\r\n'
+            writeOutput(prefix + message.stdout)
           }
         }
         
-        // Display stderr
+        // Display stderr (for both streaming and final)
         if (message.stderr) {
           console.log('XTerminal: Displaying stderr:', message.stderr)
-          writeOutput('\r\n' + message.stderr, 'red')
+          const prefix = isStreaming ? '' : '\r\n'
+          writeOutput(prefix + message.stderr, 'red')
         }
         
-        // If no output, show a message
-        if (!message.stdout && !message.stderr) {
-          console.log('XTerminal: No output from command')
-          writeOutput('\r\n[Command executed - no output]', 'blue')
+        // Only show completion messages and prompt for final results
+        if (!isStreaming) {
+          // If no output, show a message
+          if (!message.stdout && !message.stderr) {
+            console.log('XTerminal: No output from command')
+            writeOutput('\r\n[Command executed - no output]', 'blue')
+          }
+          
+          prompt()
         }
-        
-        prompt()
       } else if (message.type === 'input_request') {
         // Handle input request from backend (e.g., Python input() function)
         console.log('XTerminal: Input request received:', message.prompt)
@@ -522,9 +545,29 @@ const XTerminal: React.FC<XTerminalProps> = () => {
 
         const code = data.charCodeAt(0)
 
-        if (code === 13) { // Enter
+        if (code === 3) { // Ctrl+C
+          // Send interrupt signal to backend
+          console.log('XTerminal: Ctrl+C pressed, sending interrupt signal')
+          sendTerminalMessage({
+            type: 'interrupt',
+            working_directory: workingDirectoryRef.current
+          })
+          
+          // Display ^C in terminal and start new line
+          terminal.write('^C\r\n')
+          currentLineRef.current = ''
+          cursorPositionRef.current = 0
+          
+          // If we're processing a command, stop processing
+          if (isProcessingRef.current) {
+            isProcessingRef.current = false
+            prompt()
+          }
+          return
+        } else if (code === 13) { // Enter
           const command = currentLineRef.current
           currentLineRef.current = ''
+          cursorPositionRef.current = 0
           
           if (waitingForInputRef.current) {
             // We're waiting for input - send it to the backend
@@ -549,6 +592,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         } else if (code === 127) { // Backspace
           if (currentLineRef.current.length > 0) {
             currentLineRef.current = currentLineRef.current.slice(0, -1)
+            cursorPositionRef.current = currentLineRef.current.length
             terminal.write('\b \b')
           }
         } else if (code === 9) { // Tab key
@@ -566,6 +610,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
               terminal.write('\r$ ' + ' '.repeat(currentLineRef.current.length) + '\r$ ')
               terminal.write(historyCommand)
               currentLineRef.current = historyCommand
+              cursorPositionRef.current = historyCommand.length
             }
           } else if (seq === '[B') { // Arrow Down
             if (historyIndexRef.current < commandHistoryRef.current.length - 1) {
@@ -577,12 +622,14 @@ const XTerminal: React.FC<XTerminalProps> = () => {
               terminal.write('\r$ ' + ' '.repeat(currentLineRef.current.length) + '\r$ ')
               terminal.write(historyCommand)
               currentLineRef.current = historyCommand
+              cursorPositionRef.current = historyCommand.length
             } else if (historyIndexRef.current === commandHistoryRef.current.length - 1) {
               historyIndexRef.current = commandHistoryRef.current.length
               
               // Clear current line
               terminal.write('\r$ ' + ' '.repeat(currentLineRef.current.length) + '\r$ ')
               currentLineRef.current = ''
+              cursorPositionRef.current = 0
             }
           } else {
             // Let xterm handle all other escape sequences (including left/right arrows) naturally
@@ -590,6 +637,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           }
         } else if (code >= 32) { // Printable characters
           currentLineRef.current = currentLineRef.current + data
+          cursorPositionRef.current = currentLineRef.current.length
           terminal.write(data)
         }
       })

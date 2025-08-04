@@ -16,7 +16,7 @@ from app.schemas.websocket import (
     MessageType, BaseMessage, CommandMessage, FileUpdateMessage,
     FileRequestMessage, FileListMessage, CommandResponseMessage,
     FileDeleteMessage, FileRenameMessage, FolderCreateMessage,
-    PongMessage, InputResponseMessage
+    PongMessage, InputResponseMessage, InterruptMessage
 )
 from app.services.terminal import terminal_service
 from app.services.workspace import WorkspaceService
@@ -279,6 +279,35 @@ class WebSocketManager:
                     session_id=session_id,
                     input_length=len(input_msg.input)
                 )
+                
+            elif message.type == MessageType.INTERRUPT:
+                # Handle interrupt signal (Ctrl+C)
+                interrupt_msg = InterruptMessage(**message_data)
+                session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                
+                logger.info(
+                    "Interrupt signal received",
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    working_directory=interrupt_msg.working_directory
+                )
+                
+                # Send interrupt signal to terminal service
+                if session_id:
+                    result = await terminal_service.interrupt_session(session_id)
+                    
+                    # Send response back to frontend
+                    from app.schemas.websocket import CommandResponseMessage
+                    response = CommandResponseMessage(
+                        type=MessageType.COMMAND_RESPONSE,
+                        command="^C",
+                        stdout="",
+                        stderr="" if result["success"] else f"Failed to interrupt: {result.get('error', 'Unknown error')}",
+                        return_code=130 if result["success"] else 1,  # 130 is standard for SIGINT
+                        working_directory=interrupt_msg.working_directory
+                    )
+                    
+                    await self.send_message(connection_id, response)
                 
                 # Forward input to terminal service
                 if self.terminal_service:
