@@ -877,42 +877,42 @@ class TerminalService:
                             
                     except asyncio.TimeoutError:
                         # Timeout while reading - might be waiting for input, flush any buffered content
-                        if process.returncode is not None:
-                            break
-                        
-                        # If we have buffered content (like an input prompt), send it
-                        if current_line:
-                            logger.info(f"[STREAMING DEBUG] Timeout with buffered content, sending: {repr(current_line)}")
-                            stdout_data.append(current_line)
-                            if self.websocket_manager:
-                                response = CommandResponseMessage(
-                                    type=MessageType.COMMAND_RESPONSE,
-                                    command=f"python3 -u {file_path}",
-                                    stdout=current_line,
-                                    stderr="",
-                                    return_code=-1,  # -1 indicates still running
-                                    working_directory=cwd
-                                )
-                                await self.websocket_manager.broadcast_to_session(session_id, response)
-                            
-                            # Check if this looks like an input prompt (no newline, process still running)
-                            if process.returncode is None and not current_line.endswith('\n'):
-                                logger.info(f"[STREAMING DEBUG] Detected input prompt, storing process reference for session {session_id}")
-                                # Store the process reference so input can be sent to it
-                                session = self.get_session(session_id)
-                                if session:
-                                    session["waiting_process"] = process
+                        if process.returncode is None:
+                            # If we have buffered content (like an input prompt), send it
+                            if current_line:
+                                logger.info(f"[STREAMING DEBUG] Timeout with buffered content, sending: {repr(current_line)}")
+                                stdout_data.append(current_line)
                                 
-                                # Send input request message to frontend
-                                if self.websocket_manager:
-                                    input_request = InputRequestMessage(
-                                        type=MessageType.INPUT_REQUEST,
-                                        prompt=current_line,
-                                        session_id=session_id
-                                    )
-                                    await self.websocket_manager.broadcast_to_session(session_id, input_request)
-                            
-                            current_line = ""  # Clear after sending
+                                # Check if this looks like an input prompt (no newline, process still running)
+                                if not current_line.endswith('\n'):
+                                    logger.info(f"[STREAMING DEBUG] Detected input prompt, storing process reference for session {session_id}")
+                                    # Store the process reference so input can be sent to it
+                                    session = self.get_session(session_id)
+                                    if session:
+                                        session["waiting_process"] = process
+                                    
+                                    # Send input request message to frontend (don't send as stdout to avoid duplication)
+                                    if self.websocket_manager:
+                                        input_request = InputRequestMessage(
+                                            type=MessageType.INPUT_REQUEST,
+                                            prompt=current_line,
+                                            session_id=session_id
+                                        )
+                                        await self.websocket_manager.broadcast_to_session(session_id, input_request)
+                                else:
+                                    # This is regular output (has newline), send as stdout
+                                    if self.websocket_manager:
+                                        response = CommandResponseMessage(
+                                            type=MessageType.COMMAND_RESPONSE,
+                                            command=f"python3 -u {file_path}",
+                                            stdout=current_line,
+                                            stderr="",
+                                            return_code=-1,  # -1 indicates still running
+                                            working_directory=cwd
+                                        )
+                                        await self.websocket_manager.broadcast_to_session(session_id, response)
+                                
+                                current_line = ""  # Clear after sending
                         
                         continue
                             
