@@ -107,8 +107,6 @@ const EditorPage: React.FC = () => {
   const [isLoadingFileContent, setIsLoadingFileContent] = useState(false)
   const [allowDirtyStateChanges, setAllowDirtyStateChanges] = useState(true)
   const [isInitialLoad, setIsInitialLoad] = useState(false)
-  const [findQuery, setFindQuery] = useState('')
-  const [replaceQuery, setReplaceQuery] = useState('')
 
   // Use refs to track loading state more reliably
   const isLoadingRef = useRef(false)
@@ -1067,20 +1065,6 @@ const EditorPage: React.FC = () => {
     })
   }, [sendTerminalMessage])
 
-  const handleFind = (query: string) => {
-    setFindQuery(query)
-    // Monaco Editor will handle the find operation
-  }
-
-  const handleReplace = (query: string, replace: string) => {
-    setFindQuery(query)
-    setReplaceQuery(replace)
-    // Monaco Editor will handle the replace operation
-  }
-
-
-
-
   // Submission handlers
   const handleSubmitForReview = () => {
     if (selectedFile) {
@@ -1133,14 +1117,8 @@ const EditorPage: React.FC = () => {
       {/* Editor Toolbar */}
       <EditorToolbar
         onSave={handleFileSave}
-        onFind={handleFind}
-        onReplace={handleReplace}
         onSubmitForReview={handleSubmitForReview}
         isDirty={isDirty}
-        findQuery={findQuery}
-        replaceQuery={replaceQuery}
-        onFindQueryChange={setFindQuery}
-        onReplaceQueryChange={setReplaceQuery}
         canSubmit={!!selectedFile}
       />
 
