@@ -19,7 +19,7 @@ from sqlalchemy import select, and_
 from app.models.file import File
 
 # WebSocket imports for file system notifications
-from app.schemas.websocket import FolderCreatedMessage, MessageType, FileUpdatedMessage, FileDeletedMessage, InputRequestMessage
+from app.schemas.websocket import FolderCreatedMessage, MessageType, FileUpdatedMessage, FileDeletedMessage, InputRequestMessage, CommandResponseMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -775,7 +775,6 @@ class TerminalService:
                             if current_line:
                                 stdout_data.append(current_line + '\n')
                                 if self.websocket_manager:
-                                    from app.schemas.websocket import CommandResponseMessage, MessageType
                                     response = CommandResponseMessage(
                                         type=MessageType.COMMAND_RESPONSE,
                                         command=f"python3 -u {file_path}",
@@ -798,7 +797,6 @@ class TerminalService:
                             
                             # Send real-time output to frontend via WebSocket
                             if self.websocket_manager:
-                                from app.schemas.websocket import CommandResponseMessage, MessageType
                                 response = CommandResponseMessage(
                                     type=MessageType.COMMAND_RESPONSE,
                                     command=f"python3 -u {file_path}",
@@ -830,7 +828,6 @@ class TerminalService:
                         
                         # Send real-time error output to frontend via WebSocket
                         if self.websocket_manager:
-                            from app.schemas.websocket import CommandResponseMessage, MessageType
                             response = CommandResponseMessage(
                                 type=MessageType.COMMAND_RESPONSE,
                                 command=f"python3 -u {file_path}",
@@ -2468,7 +2465,6 @@ class TerminalService:
                         
                         # Send real-time output to frontend via WebSocket
                         if self.websocket_manager:
-                            from app.schemas.websocket import CommandResponseMessage, MessageType
                             response = CommandResponseMessage(
                                 type=MessageType.COMMAND_RESPONSE,
                                 command=command,
@@ -2495,7 +2491,6 @@ class TerminalService:
                         
                         # Send real-time error output to frontend via WebSocket
                         if self.websocket_manager:
-                            from app.schemas.websocket import CommandResponseMessage, MessageType
                             response = CommandResponseMessage(
                                 type=MessageType.COMMAND_RESPONSE,
                                 command=command,
