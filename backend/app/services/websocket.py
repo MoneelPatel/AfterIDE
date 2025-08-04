@@ -294,7 +294,13 @@ class WebSocketManager:
                 
                 # Send interrupt signal to terminal service
                 if session_id:
+                    logger.info(f"Calling interrupt_session for session_id: {session_id}")
                     result = await terminal_service.interrupt_session(session_id)
+                    logger.info(f"Interrupt result: {result}")
+                else:
+                    logger.warning(f"No session_id found for connection {connection_id}, cannot interrupt")
+                    logger.warning(f"Available sessions: {list(self.connection_metadata.keys())}")
+                    logger.warning(f"Connection metadata: {self.connection_metadata.get(connection_id, {})}")
                     
                     # Send response back to frontend
                     response = CommandResponseMessage(
@@ -308,9 +314,8 @@ class WebSocketManager:
                     
                     await self.send_message(connection_id, response)
                 
-                # Forward input to terminal service
-                if self.terminal_service:
-                    await self.terminal_service.handle_input_response(session_id, input_msg.input)
+                # Input response is handled by the terminal service via the interrupt handling above
+                # No additional forwarding needed here
                     
             elif message.type == MessageType.TERMINAL_RESIZE:
                 # Handle terminal resize

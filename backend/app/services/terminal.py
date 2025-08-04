@@ -9,6 +9,7 @@ import subprocess
 import shlex
 import os
 import time
+import signal
 import structlog
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -81,6 +82,9 @@ class TerminalService:
     async def interrupt_session(self, session_id: str) -> Dict[str, Any]:
         """Interrupt any running process in the given session."""
         try:
+            logger.info(f"interrupt_session called for session_id: {session_id}")
+            logger.info(f"Active processes: {list(self.active_processes.keys())}")
+            
             if session_id in self.active_processes:
                 process = self.active_processes[session_id]
                 
@@ -91,12 +95,27 @@ class TerminalService:
                         process_id=process.pid
                     )
                     
-                    # Send SIGINT to the process
-                    process.terminate()
+                    # Send SIGINT to the process group (Ctrl+C equivalent)
+                    try:
+                        os.killpg(process.pid, signal.SIGINT)
+                        logger.info(f"Sent SIGINT to process group {process.pid}")
+                    except ProcessLookupError:
+                        # Fallback to sending to process directly if process group doesn't exist
+                        process.send_signal(signal.SIGINT)
+                        logger.info(f"Sent SIGINT to process {process.pid}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send SIGINT: {e}")
+                        # If SIGINT fails, try SIGTERM
+                        try:
+                            process.terminate()
+                            logger.info(f"Sent SIGTERM to process {process.pid}")
+                        except:
+                            pass
                     
                     # Wait briefly for graceful termination
                     try:
-                        await asyncio.wait_for(process.wait(), timeout=2.0)
+                        await asyncio.wait_for(process.wait(), timeout=1.0)  # Reduced timeout
+                        logger.info(f"Process {process.pid} terminated gracefully")
                     except asyncio.TimeoutError:
                         # Force kill if it doesn't terminate gracefully
                         logger.warning(
@@ -104,7 +123,14 @@ class TerminalService:
                             session_id=session_id,
                             process_id=process.pid
                         )
-                        process.kill()
+                        try:
+                            # Try SIGKILL to process group first
+                            os.killpg(process.pid, signal.SIGKILL)
+                            logger.info(f"Sent SIGKILL to process group {process.pid}")
+                        except:
+                            # Fallback to killing the process directly
+                            process.kill()
+                            logger.info(f"Sent SIGKILL to process {process.pid}")
                         await process.wait()
                     
                     # Clean up the process reference
@@ -751,7 +777,9 @@ class TerminalService:
                     "PYTHONIOENCODING": "utf-8"
                 },
                 # Force unbuffered output for real-time streaming
-                bufsize=0
+                bufsize=0,
+                # Create new process group for proper signal handling
+                preexec_fn=os.setsid
             )
             logger.info(f"[STREAMING DEBUG] Process created with PID {process.pid} for session {session_id}")
             
@@ -765,12 +793,20 @@ class TerminalService:
             async def read_stdout():
                 """Read stdout character by character and send lines to frontend"""
                 current_line = ""
-                while True:
+                while process.returncode is None:  # Only continue while process is running
                     try:
+                        # Check if session was removed (interrupted)
+                        if session_id not in self.active_processes:
+                            logger.info(f"[STREAMING DEBUG] Session {session_id} was interrupted, stopping stdout reading")
+                            break
+                            
                         # Read one character at a time to avoid blocking
-                        char_bytes = await process.stdout.read(1)
+                        char_bytes = await asyncio.wait_for(process.stdout.read(1), timeout=0.1)
                         if not char_bytes:
                             logger.info(f"[STREAMING DEBUG] No more stdout data for session {session_id}")
+                            # Check if process has terminated
+                            if process.returncode is not None:
+                                break
                             # Send any remaining line
                             if current_line:
                                 stdout_data.append(current_line + '\n')
@@ -812,17 +848,31 @@ class TerminalService:
                             
                             current_line = ""  # Reset for next line
                             
+                    except asyncio.TimeoutError:
+                        # Timeout while reading - check if process is still alive and continue
+                        if process.returncode is not None:
+                            break
+                        continue
+                            
                     except Exception as e:
                         logger.error(f"[STREAMING DEBUG] Error reading stdout: {e}")
                         break
             
             async def read_stderr():
                 """Read stderr line by line and send to frontend"""
-                while True:
+                while process.returncode is None:  # Only continue while process is running
                     try:
-                        line = await process.stderr.readline()
-                        if not line:
+                        # Check if session was removed (interrupted)
+                        if session_id not in self.active_processes:
+                            logger.info(f"[STREAMING DEBUG] Session {session_id} was interrupted, stopping stderr reading")
                             break
+                            
+                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        if not line:
+                            # Check if process has terminated
+                            if process.returncode is not None:
+                                break
+                            continue
                         line_str = line.decode('utf-8')
                         stderr_data.append(line_str)
                         
@@ -838,6 +888,11 @@ class TerminalService:
                             )
                             # Broadcast to session
                             await self.websocket_manager.broadcast_to_session(session_id, response)
+                    except asyncio.TimeoutError:
+                        # Timeout while reading - check if process is still alive and continue
+                        if process.returncode is not None:
+                            break
+                        continue
                     except Exception as e:
                         logger.error(f"Error reading stderr: {e}")
                         break
@@ -876,14 +931,11 @@ class TerminalService:
             if session_id in self.active_processes:
                 del self.active_processes[session_id]
             
-            # Send final completion message
-            final_stdout = ''.join(stdout_data)
-            final_stderr = ''.join(stderr_data)
-            
+            # Send final completion message (no output since it was already streamed)
             return {
                 "success": process.returncode == 0,
-                "stdout": final_stdout,
-                "stderr": final_stderr,
+                "stdout": "",  # Empty since output was already streamed in real-time
+                "stderr": "",  # Empty since errors were already streamed in real-time
                 "return_code": process.returncode or 0,
                 "execution_time": 0.0,
                 "command": f"python3 -u {file_path}"
@@ -2443,7 +2495,9 @@ class TerminalService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=temp_workspace,
-                env=env
+                env=env,
+                # Create new process group for proper signal handling
+                preexec_fn=os.setsid
             )
             
             # Store process reference for interrupt handling
@@ -2455,11 +2509,14 @@ class TerminalService:
             
             async def read_stdout():
                 """Read stdout line by line and send to frontend"""
-                while True:
+                while process.returncode is None:  # Only continue while process is running
                     try:
                         line = await process.stdout.readline()
                         if not line:
-                            break
+                            # Check if process has terminated
+                            if process.returncode is not None:
+                                break
+                            continue
                         line_str = line.decode('utf-8')
                         stdout_data.append(line_str)
                         
@@ -2481,11 +2538,19 @@ class TerminalService:
             
             async def read_stderr():
                 """Read stderr line by line and send to frontend"""
-                while True:
+                while process.returncode is None:  # Only continue while process is running
                     try:
-                        line = await process.stderr.readline()
-                        if not line:
+                        # Check if session was removed (interrupted)
+                        if session_id not in self.active_processes:
+                            logger.info(f"[STREAMING DEBUG] Session {session_id} was interrupted, stopping stderr reading")
                             break
+                            
+                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        if not line:
+                            # Check if process has terminated
+                            if process.returncode is not None:
+                                break
+                            continue
                         line_str = line.decode('utf-8')
                         stderr_data.append(line_str)
                         
@@ -2501,6 +2566,11 @@ class TerminalService:
                             )
                             # Broadcast to session
                             await self.websocket_manager.broadcast_to_session(session_id, response)
+                    except asyncio.TimeoutError:
+                        # Timeout while reading - check if process is still alive and continue
+                        if process.returncode is not None:
+                            break
+                        continue
                     except Exception as e:
                         logger.error(f"Error reading stderr: {e}")
                         break
@@ -2539,14 +2609,11 @@ class TerminalService:
             if session_id in self.active_processes:
                 del self.active_processes[session_id]
             
-            # Send final completion message
-            final_stdout = ''.join(stdout_data)
-            final_stderr = ''.join(stderr_data)
-            
+            # Send final completion message (no output since it was already streamed)
             return {
                 "success": process.returncode == 0,
-                "stdout": final_stdout,
-                "stderr": final_stderr,
+                "stdout": "",  # Empty since output was already streamed in real-time
+                "stderr": "",  # Empty since errors were already streamed in real-time
                 "return_code": process.returncode or 0,
                 "execution_time": 0.0,
                 "command": command

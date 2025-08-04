@@ -277,7 +277,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     // Send command to backend if connected
     if (terminalConnectedRef.current) {
       isProcessingRef.current = true
-      console.log('XTerminal: Sending command to backend')
+      console.log('XTerminal: Setting isProcessing to true, sending command to backend')
       sendTerminalMessage({
         type: 'command',
         command: command.trim(),
@@ -336,6 +336,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         
         if (!isStreaming) {
           // Final command completion - stop processing
+          console.log('XTerminal: Command completed, setting isProcessing to false')
           isProcessingRef.current = false
           
           // Update working directory if provided (for cd commands)
@@ -467,16 +468,17 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     }
 
     // If dimensions are already available, initialize immediately
-    setTimeout(initializeTerminal, 10)
+    let keyDownCleanup: (() => void) | null = null
+    setTimeout(() => keyDownCleanup = initializeTerminal(), 10)
 
-    function initializeTerminal() {
-      if (!terminalRef.current || xtermRef.current) return
+    function initializeTerminal(): (() => void) | null {
+      if (!terminalRef.current || xtermRef.current) return null
       
       // Double-check dimensions before proceeding
       const rect = terminalRef.current.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) {
         console.warn('Terminal container still has no dimensions, skipping initialization')
-        return
+        return null
       }
 
       const terminal = new Terminal({
@@ -526,7 +528,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
 
       } catch (error) {
         console.warn('Failed to initialize terminal:', error)
-        return
+        return null
       }
 
       // Welcome message
@@ -539,11 +541,11 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       }, 100)
 
       // Handle input
+      let inputCounter = 0
       terminal.onData((data) => {
-        // Allow input if we're waiting for user input, even if processing
-        if (isProcessingRef.current && !waitingForInputRef.current) return
-
+        inputCounter++
         const code = data.charCodeAt(0)
+        console.log(`XTerminal: onData called #${inputCounter} - code:`, code, 'data:', JSON.stringify(data), 'isProcessing:', isProcessingRef.current, 'waitingForInput:', waitingForInputRef.current)
 
         if (code === 3) { // Ctrl+C
           // Send interrupt signal to backend
@@ -564,7 +566,15 @@ const XTerminal: React.FC<XTerminalProps> = () => {
             prompt()
           }
           return
-        } else if (code === 13) { // Enter
+        }
+
+        // Allow input if we're waiting for user input, even if processing
+        if (isProcessingRef.current && !waitingForInputRef.current) {
+          console.log('XTerminal: Input blocked - processing command and not waiting for input')
+          return
+        }
+
+        if (code === 13) { // Enter
           const command = currentLineRef.current
           currentLineRef.current = ''
           cursorPositionRef.current = 0
@@ -651,9 +661,63 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           })
         }
       })
+
+      // Add keyboard event listener to capture Ctrl+C/Cmd+C at document level
+      const handleKeyDown = (event: KeyboardEvent) => {
+        console.log('XTerminal: KeyDown event - key:', event.key, 'code:', event.code, 'ctrlKey:', event.ctrlKey, 'metaKey:', event.metaKey)
+        
+        // Check for Ctrl+C (Windows/Linux) or Cmd+C (Mac)
+        if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+          console.log('XTerminal: Ctrl+C or Cmd+C detected at document level')
+          
+          // Only handle if terminal is focused AND we're actually processing a command
+          const isTerminalFocused = document.activeElement === terminalRef.current || terminalRef.current?.contains(document.activeElement)
+          
+          if (isTerminalFocused && isProcessingRef.current) {
+            console.log('XTerminal: Terminal is focused and processing command, handling interrupt')
+            event.preventDefault()
+            event.stopPropagation()
+            
+            // Send interrupt signal to backend
+            console.log('XTerminal: Sending interrupt signal to backend')
+            sendTerminalMessage({
+              type: 'interrupt',
+              working_directory: workingDirectoryRef.current
+            })
+            
+            // Display ^C in terminal and start new line
+            if (xtermRef.current) {
+              xtermRef.current.write('^C\r\n')
+            }
+            currentLineRef.current = ''
+            cursorPositionRef.current = 0
+            
+            // Stop processing
+            console.log('XTerminal: Stopping command processing')
+            isProcessingRef.current = false
+            prompt()
+          } else if (isTerminalFocused) {
+            console.log('XTerminal: Terminal focused but not processing command, ignoring Ctrl+C')
+          } else {
+            console.log('XTerminal: Terminal not focused, allowing default Ctrl+C behavior')
+          }
+        }
+      }
+
+      document.addEventListener('keydown', handleKeyDown)
+      
+      // Return cleanup function for this terminal instance
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown)
+      }
     }
 
     return () => {
+      // Clean up keyboard event listener
+      if (keyDownCleanup) {
+        keyDownCleanup()
+      }
+      
       try {
         if (xtermRef.current) {
           xtermRef.current.dispose()
