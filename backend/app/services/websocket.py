@@ -297,7 +297,6 @@ class WebSocketManager:
                     result = await terminal_service.interrupt_session(session_id)
                     
                     # Send response back to frontend
-                    from app.schemas.websocket import CommandResponseMessage
                     response = CommandResponseMessage(
                         type=MessageType.COMMAND_RESPONSE,
                         command="^C",

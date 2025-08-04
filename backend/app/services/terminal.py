@@ -750,8 +750,8 @@ class TerminalService:
                     "PYTHONUNBUFFERED": "1", 
                     "PYTHONIOENCODING": "utf-8"
                 },
-                # Force line buffering at OS level
-                bufsize=1
+                # Force unbuffered output for real-time streaming
+                bufsize=0
             )
             logger.info(f"[STREAMING DEBUG] Process created with PID {process.pid} for session {session_id}")
             
