@@ -36,9 +36,9 @@ def create_application() -> FastAPI:
         title=settings.PROJECT_NAME,
         description="AfterIDE - Web-Based Integrated Development Environment",
         version=settings.VERSION,
-        docs_url="/docs" if settings.DEBUG else None,
-        redoc_url="/redoc" if settings.DEBUG else None,
-        openapi_url="/openapi.json" if settings.DEBUG else None,
+        docs_url="/docs",  # Always enable docs
+        redoc_url="/redoc",  # Always enable redoc
+        openapi_url="/openapi.json",  # Always enable OpenAPI JSON
     )
     
     # Add CORS middleware
@@ -126,9 +126,34 @@ def create_application() -> FastAPI:
                     text-decoration: none;
                     border-radius: 5px;
                     margin: 0.5rem;
+                    transition: background-color 0.3s ease;
                 }}
                 .docs-link:hover {{
                     background: #5a6fd8;
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }}
+                .api-docs-section {{
+                    background: #f8f9fa;
+                    padding: 1.5rem;
+                    border-radius: 10px;
+                    margin: 1rem 0;
+                    border-left: 4px solid #667eea;
+                }}
+                .feature-list {{
+                    list-style: none;
+                    padding: 0;
+                }}
+                .feature-list li {{
+                    padding: 0.5rem 0;
+                    border-bottom: 1px solid #e9ecef;
+                }}
+                .feature-list li:last-child {{
+                    border-bottom: none;
+                }}
+                .feature-list li:before {{
+                    content: "✅ ";
+                    margin-right: 0.5rem;
                 }}
                 .api-link {{
                     color: #667eea;
@@ -153,8 +178,9 @@ def create_application() -> FastAPI:
             <h2>Available Endpoints</h2>
             <div class="endpoint">
                 <strong>API Documentation:</strong> 
-                <a href="/docs" class="docs-link">OpenAPI Docs</a>
+                <a href="/docs" class="docs-link">OpenAPI Docs (Swagger)</a>
                 <a href="/redoc" class="docs-link">ReDoc</a>
+                <a href="/openapi.json" class="docs-link">OpenAPI JSON</a>
             </div>
             <div class="endpoint">
                 <strong>Health Check:</strong> <a href="/health" class="api-link">/health</a>
@@ -184,11 +210,23 @@ def create_application() -> FastAPI:
             <h2>Quick Start</h2>
             <p>To get started with AfterIDE:</p>
             <ol>
-                <li>Check the <a href="/docs">API documentation</a> for available endpoints</li>
+                <li>Check the <a href="/docs">API documentation</a> for available endpoints (interactive Swagger UI)</li>
                 <li>Use the authentication endpoints to register/login</li>
                 <li>Create a development session</li>
                 <li>Start coding in your web-based IDE!</li>
             </ol>
+            
+            <h2>API Documentation</h2>
+            <div class="api-docs-section">
+                <p>The API documentation is fully interactive and allows you to:</p>
+                <ul class="feature-list">
+                    <li>View all endpoints with detailed descriptions</li>
+                    <li>Test API calls directly from the browser</li>
+                    <li>See request/response schemas for all endpoints</li>
+                    <li>Authenticate and make real API calls to test functionality</li>
+                </ul>
+                <p><a href="/docs" class="docs-link">🚀 Open Interactive API Documentation</a></p>
+            </div>
             
             <h2>API Examples</h2>
             <p>Try these endpoints to test the API:</p>
@@ -219,7 +257,9 @@ def create_application() -> FastAPI:
             "description": "AfterIDE - Web-Based Integrated Development Environment",
             "environment": settings.ENVIRONMENT,
             "debug": settings.DEBUG,
-            "docs_url": "/docs" if settings.DEBUG else None,
+            "docs_url": "/docs",  # Always available
+            "redoc_url": "/redoc",  # Always available
+            "openapi_url": "/openapi.json",  # Always available
             "health_url": "/health",
             "api_base_url": "/api/v1"
         }
