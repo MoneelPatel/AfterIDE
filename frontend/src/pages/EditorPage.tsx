@@ -59,6 +59,7 @@ const EditorPage: React.FC = () => {
   const [fileContent, setFileContent] = useState('')
   const [terminalOutput, setTerminalOutput] = useState('')
   const [loadedDirectories, setLoadedDirectories] = useState<Set<string>>(new Set(['/']))
+  const [autoFollowTerminal, setAutoFollowTerminal] = useState(false) // Control whether file explorer follows terminal directory
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const { isAuthenticated, user } = useAuthStore()
@@ -597,6 +598,19 @@ const EditorPage: React.FC = () => {
             type: 'file_list',
             directory: '/'
           })
+        } else if (message.command.startsWith('cd ')) {
+          // Directory change detected - DO NOT update file explorer automatically
+          // This prevents unwanted expansion/shrinking of the file tree
+          console.log('Directory change detected in terminal - file explorer will remain stable')
+          
+          // Only update file explorer if auto-follow is enabled
+          if (autoFollowTerminal && message.working_directory) {
+            console.log('Auto-follow enabled: updating file explorer to match terminal directory:', message.working_directory)
+            sendFilesMessage({
+              type: 'file_list',
+              directory: message.working_directory
+            })
+          }
         }
         // Removed automatic file tree updates for cd commands to prevent unwanted expansion/shrinking
       }
@@ -607,7 +621,7 @@ const EditorPage: React.FC = () => {
     return () => {
       offTerminalMessage('command_response', handleTerminalMessage)
     }
-  }, [onTerminalMessage, offTerminalMessage, sendFilesMessage])
+  }, [onTerminalMessage, offTerminalMessage, sendFilesMessage, autoFollowTerminal])
 
   // Handle resize functionality
   useEffect(() => {
@@ -1165,23 +1179,6 @@ const EditorPage: React.FC = () => {
     }
   }
 
-  const handleTerminalCommand = useCallback((command: string) => {
-    // Send command to backend via WebSocket
-    sendTerminalMessage({
-      type: 'command',
-      command: command
-    })
-  }, [sendTerminalMessage])
-
-  // Submission handlers
-  const handleSubmitForReview = () => {
-    if (selectedFile) {
-      setShowSubmissionForm(true)
-    } else {
-      toast.error('Please select a file to submit for review')
-    }
-  }
-
   const handleSubmissionSuccess = () => {
     setShowSubmissionForm(false)
     toast.success('Code submitted for review successfully!')
@@ -1189,6 +1186,20 @@ const EditorPage: React.FC = () => {
 
   const handleSubmissionCancel = () => {
     setShowSubmissionForm(false)
+  }
+
+  const handleTerminalCommand = (command: string) => {
+    // This function is called when a command is executed in the terminal
+    // We can add any additional logic here if needed
+    console.log('Terminal command executed:', command)
+  }
+
+  const handleSubmitForReview = () => {
+    if (selectedFile) {
+      setShowSubmissionForm(true)
+    } else {
+      toast.error('Please select a file to submit for review')
+    }
   }
 
   const getLanguageFromFileName = (fileName: string) => {
@@ -1251,6 +1262,8 @@ const EditorPage: React.FC = () => {
                 onFolderExpansion={handleFolderExpansion}
                 expandedFolders={expandedFolders}
                 onExpandedFoldersChange={setExpandedFolders}
+                autoFollowTerminal={autoFollowTerminal}
+                onAutoFollowTerminalChange={setAutoFollowTerminal}
               />
             </div>
             
@@ -1313,6 +1326,7 @@ const EditorPage: React.FC = () => {
               onCommand={handleTerminalCommand} 
               isConnected={terminalConnected}
               containerHeight={100 - editorHeight}
+              autoFollowTerminal={autoFollowTerminal}
             />
           </div>
         </div>

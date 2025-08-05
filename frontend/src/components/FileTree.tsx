@@ -37,6 +37,8 @@ interface FileTreeProps {
   onFolderExpansion?: (folderPath: string) => void
   expandedFolders?: Set<string>
   onExpandedFoldersChange?: (expandedFolders: Set<string>) => void
+  autoFollowTerminal?: boolean
+  onAutoFollowTerminalChange?: (enabled: boolean) => void
 }
 
 // Helper function to get file icon and language based on extension
@@ -81,7 +83,9 @@ const FileTree: React.FC<FileTreeProps> = ({
   onFileMove,
   onFolderExpansion,
   expandedFolders: propExpandedFolders,
-  onExpandedFoldersChange
+  onExpandedFoldersChange,
+  autoFollowTerminal,
+  onAutoFollowTerminalChange
 }) => {
   const [draggedFile, setDraggedFile] = useState<string | null>(null);
   const [dragOverFile, setDragOverFile] = useState<string | null>(null);
@@ -370,44 +374,60 @@ const FileTree: React.FC<FileTreeProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-medium text-gray-900 dark:text-white">Files</h3>
-        {onFileCreate && (
-          <div className="relative">
+        <div className="flex items-center space-x-2">
+          {/* Auto-follow terminal toggle */}
+          {onAutoFollowTerminalChange && (
             <button
-              onClick={() => setShowCreateDropdown(!showCreateDropdown)}
-              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center"
-              title="New file or folder"
+              onClick={() => onAutoFollowTerminalChange(!autoFollowTerminal)}
+              className={`p-1 rounded text-xs transition-colors ${
+                autoFollowTerminal 
+                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' 
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+              title={autoFollowTerminal ? 'Disable auto-follow terminal' : 'Enable auto-follow terminal'}
             >
-              <PlusIcon className="w-4 h-4" />
-              <ChevronDownIcon className="w-3 h-3 ml-1" />
+              {autoFollowTerminal ? '📂' : '📁'}
             </button>
-            
-            {/* Dropdown Menu */}
-            {showCreateDropdown && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowCreateDropdown(false)}
-                />
-                <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg py-1 min-w-[140px]">
-                  <button
-                    onClick={() => handleCreateNew('file')}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
-                  >
-                    <DocumentIcon className="w-4 h-4 mr-2" />
-                    New File
-                  </button>
-                  <button
-                    onClick={() => handleCreateNew('folder')}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
-                  >
-                    <FolderIcon className="w-4 h-4 mr-2" />
-                    New Folder
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+          )}
+          {onFileCreate && (
+            <div className="relative">
+              <button
+                onClick={() => setShowCreateDropdown(!showCreateDropdown)}
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center"
+                title="New file or folder"
+              >
+                <PlusIcon className="w-4 h-4" />
+                <ChevronDownIcon className="w-3 h-3 ml-1" />
+              </button>
+              
+              {/* Dropdown Menu */}
+              {showCreateDropdown && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowCreateDropdown(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg py-1 min-w-[140px]">
+                    <button
+                      onClick={() => handleCreateNew('file')}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
+                    >
+                      <DocumentIcon className="w-4 h-4 mr-2" />
+                      New File
+                    </button>
+                    <button
+                      onClick={() => handleCreateNew('folder')}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
+                    >
+                      <FolderIcon className="w-4 h-4 mr-2" />
+                      New Folder
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* File Tree */}

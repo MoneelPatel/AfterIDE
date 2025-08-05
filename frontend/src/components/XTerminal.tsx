@@ -10,9 +10,10 @@ interface XTerminalProps {
   onCommand?: (command: string) => void
   isConnected?: boolean
   containerHeight?: number // Add prop to track container height changes
+  autoFollowTerminal?: boolean // Show if file explorer follows terminal directory
 }
 
-const XTerminal: React.FC<XTerminalProps> = ({ containerHeight }) => {
+const XTerminal: React.FC<XTerminalProps> = ({ containerHeight, autoFollowTerminal }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -50,6 +51,14 @@ const XTerminal: React.FC<XTerminalProps> = ({ containerHeight }) => {
   // Add deduplication tracking
   const processedMessages = useRef<Set<string>>(new Set())
   const lastMessageRef = useRef<{key: string, timestamp: number} | null>(null)
+
+  // Show auto-follow status in terminal
+  useEffect(() => {
+    if (autoFollowTerminal && xtermRef.current) {
+      const terminal = xtermRef.current
+      terminal.write('\r\n\x1b[33m[File Explorer: Auto-following terminal directory]\x1b[0m\r\n')
+    }
+  }, [autoFollowTerminal])
 
   // Tab completion functions
   const getFileSuggestions = useCallback(async (partial: string): Promise<string[]> => {
@@ -837,7 +846,7 @@ const XTerminal: React.FC<XTerminalProps> = ({ containerHeight }) => {
     >
       <div 
         ref={terminalRef} 
-        className="h-full w-full" 
+        className="h-full w-full"
         style={{
           minHeight: '200px',
           minWidth: '300px'

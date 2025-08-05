@@ -197,7 +197,12 @@ class InputValidator:
             if pattern.search(command):
                 return False, "", "Command pattern is not allowed"
         
-        # Check for path traversal
+        # Special handling for cd .. command - allow it
+        if command.strip().lower() == "cd ..":
+            sanitized = self._sanitize_command(command)
+            return True, sanitized, ""
+        
+        # Check for path traversal (but allow cd ..)
         for pattern in self.blocked_path_patterns:
             if pattern.search(command):
                 return False, "", "Path traversal is not allowed"
