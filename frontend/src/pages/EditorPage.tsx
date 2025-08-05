@@ -528,6 +528,13 @@ const EditorPage: React.FC = () => {
         } else if (message.command.startsWith('ls')) {
           // Directory listing was shown
           console.log('Directory listing shown in terminal')
+        } else if (message.command.startsWith('cd ') && message.working_directory) {
+          // Directory changed - update file tree to show new directory contents
+          console.log('Directory changed via cd command, updating file tree for:', message.working_directory)
+          sendFilesMessage({
+            type: 'file_list',
+            directory: message.working_directory
+          })
         }
       }
     }
@@ -537,7 +544,7 @@ const EditorPage: React.FC = () => {
     return () => {
       offTerminalMessage('command_response', handleTerminalMessage)
     }
-  }, [onTerminalMessage, offTerminalMessage])
+  }, [onTerminalMessage, offTerminalMessage, sendFilesMessage])
 
   // Handle resize functionality
   useEffect(() => {
