@@ -243,7 +243,8 @@ class WebSocketManager:
                     session_id=session_id,
                     command=command_msg.command,
                     timeout=30,
-                    working_directory=command_msg.working_directory
+                    working_directory=command_msg.working_directory,
+                    connection_id=connection_id  # Pass the connection ID
                 )
                 
                 # Check if this was a streaming command (empty stdout/stderr means it was already streamed)

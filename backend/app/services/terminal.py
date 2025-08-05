@@ -297,7 +297,8 @@ class TerminalService:
         session_id: str, 
         command: str,
         timeout: int = 30,
-        working_directory: str = None
+        working_directory: str = None,
+        connection_id: str = None
     ) -> Dict[str, Any]:
         """Execute a terminal command."""
         start_time = time.time()
@@ -337,6 +338,11 @@ class TerminalService:
             self.command_history[session_id].append(command)
             if len(self.command_history[session_id]) > 100:
                 self.command_history[session_id] = self.command_history[session_id][-100:]
+            
+            # Store the connection ID that initiated this command
+            if connection_id:
+                session["command_connection_id"] = connection_id
+                logger.info(f"[DEBUG] Stored command connection ID {connection_id} for session {session_id}")
             
             logger.info(f"[COMMAND DEBUG] Executing command: {command} for session {session_id} in {working_dir}")
             
@@ -901,45 +907,39 @@ class TerminalService:
                         # Timeout while reading - check for input prompts
                         # Only detect as input prompt if we have content and no newline arrives after a delay
                         if process.returncode is None and current_line and not current_line.endswith('\n') and not input_request_sent:
-                            # Wait a bit longer to see if a newline arrives (indicating regular output)
-                            # If no newline arrives, it's likely an input prompt
-                            try:
-                                # Try to read more data with a short timeout
-                                more_data = await asyncio.wait_for(process.stdout.read(1), timeout=0.05)
-                                if more_data:
-                                    # More data arrived, continue processing normally
-                                    char = more_data.decode('utf-8')
-                                    current_line += char
-                                    
-                                    continue
-                                    
-                            except asyncio.TimeoutError:
-                                # No more data arrived quickly, this is likely an input prompt
-                                logger.info(f"[STREAMING DEBUG] Detected input prompt after delay, sending: {repr(current_line)}")
-                                
-                                # Check if we already have a pending input request for this session+prompt
-                                request_key = f"{session_id}:{current_line}"
-                                if request_key in self.pending_input_requests:
-                                    logger.info(f"[STREAMING DEBUG] Input request already pending for {session_id}, skipping duplicate")
-                                    continue
-                                
-                                # Store the process reference so input can be sent to it
+                            # This looks like an input prompt - send it immediately
+                            logger.info(f"[STREAMING DEBUG] Detected input prompt, sending: {repr(current_line)}")
+                            
+                            # Store the process reference so input can be sent to it
+                            session = self.get_session(session_id)
+                            if session:
+                                session["waiting_process"] = process
+                                logger.info(f"[DEBUG] Stored waiting process for session {session_id}")
+                                logger.info(f"[DEBUG] Session after storing waiting process: {session}")
+                            else:
+                                logger.error(f"[DEBUG] No session found when trying to store waiting process for {session_id}")
+                            
+                            # Send input request message to frontend
+                            if self.websocket_manager:
+                                input_request = InputRequestMessage(
+                                    type=MessageType.INPUT_REQUEST,
+                                    prompt=current_line,
+                                    session_id=session_id
+                                )
+                                # Only send to the connection that initiated the command, not broadcast
+                                # Get the connection ID that initiated this command
                                 session = self.get_session(session_id)
-                                if session:
-                                    session["waiting_process"] = process
-                                
-                                # Send input request message to frontend
-                                if self.websocket_manager:
-                                    self.pending_input_requests.add(request_key)  # Mark as pending
-                                    input_request = InputRequestMessage(
-                                        type=MessageType.INPUT_REQUEST,
-                                        prompt=current_line,
-                                        session_id=session_id
-                                    )
+                                if session and "command_connection_id" in session:
+                                    connection_id = session["command_connection_id"]
+                                    await self.websocket_manager.send_message(connection_id, input_request)
+                                    logger.info(f"[DEBUG] Sent input request to specific connection {connection_id}")
+                                else:
+                                    # Fallback to broadcast if no specific connection found
                                     await self.websocket_manager.broadcast_to_session(session_id, input_request)
-                                    input_request_sent = True  # Prevent duplicate requests
-                                
-                                current_line = ""  # Clear after sending
+                                    logger.info(f"[DEBUG] Fallback: broadcasted input request to session {session_id}")
+                            
+                            current_line = ""  # Clear after sending
+                            input_request_sent = True  # Mark as sent to prevent duplicates
                         
                         continue
                             
@@ -992,7 +992,24 @@ class TerminalService:
             
             try:
                 # Wait for process to complete or timeout
-                await asyncio.wait_for(process.wait(), timeout=timeout)
+                # But don't timeout if the process is waiting for input
+                session = self.get_session(session_id)
+                logger.info(f"[DEBUG] Before process.wait() - session_id: {session_id}, session exists: {session is not None}")
+                if session:
+                    logger.info(f"[DEBUG] Session data: {session}")
+                    waiting_process = session.get("waiting_process")
+                    logger.info(f"[DEBUG] Waiting process: {waiting_process is not None}")
+                    if waiting_process:
+                        # Process is waiting for input, don't timeout
+                        logger.info(f"[DEBUG] Process is waiting for input, not applying timeout for session {session_id}")
+                        await process.wait()
+                    else:
+                        # Process is not waiting for input, apply normal timeout
+                        logger.info(f"[DEBUG] Process is not waiting for input, applying timeout {timeout}s for session {session_id}")
+                        await asyncio.wait_for(process.wait(), timeout=timeout)
+                else:
+                    logger.warning(f"[DEBUG] No session found for {session_id}, applying timeout {timeout}s")
+                    await asyncio.wait_for(process.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"Process timed out after {timeout} seconds, terminating")
                 process.terminate()
@@ -2690,7 +2707,24 @@ class TerminalService:
             
             try:
                 # Wait for process to complete or timeout
-                await asyncio.wait_for(process.wait(), timeout=timeout)
+                # But don't timeout if the process is waiting for input
+                session = self.get_session(session_id)
+                logger.info(f"[DEBUG] Before process.wait() - session_id: {session_id}, session exists: {session is not None}")
+                if session:
+                    logger.info(f"[DEBUG] Session data: {session}")
+                    waiting_process = session.get("waiting_process")
+                    logger.info(f"[DEBUG] Waiting process: {waiting_process is not None}")
+                    if waiting_process:
+                        # Process is waiting for input, don't timeout
+                        logger.info(f"[DEBUG] Process is waiting for input, not applying timeout for session {session_id}")
+                        await process.wait()
+                    else:
+                        # Process is not waiting for input, apply normal timeout
+                        logger.info(f"[DEBUG] Process is not waiting for input, applying timeout {timeout}s for session {session_id}")
+                        await asyncio.wait_for(process.wait(), timeout=timeout)
+                else:
+                    logger.warning(f"[DEBUG] No session found for {session_id}, applying timeout {timeout}s")
+                    await asyncio.wait_for(process.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"Process timed out after {timeout} seconds, terminating")
                 process.terminate()
@@ -2819,18 +2853,24 @@ class TerminalService:
         try:
             logger.info(f"[DEBUG] handle_input_response called with session_id={session_id}, user_input={repr(user_input)}")
             session = self.get_session(session_id)
+            logger.info(f"[DEBUG] Session found: {session is not None}")
             if not session:
                 logger.warning("No session found for input response", session_id=session_id)
                 return
             
+            logger.info(f"[DEBUG] Session data: {session}")
+            
             # Get the waiting process from session
             waiting_process = session.get("waiting_process")
+            logger.info(f"[DEBUG] Waiting process found: {waiting_process is not None}")
             if not waiting_process:
                 logger.warning("No waiting process found for input response", session_id=session_id)
+                logger.warning(f"[DEBUG] Session keys: {list(session.keys())}")
                 return
             
             # Send input to the process
             try:
+                logger.info(f"[DEBUG] Sending input to process: {repr(user_input)}")
                 waiting_process.stdin.write(f"{user_input}\n".encode('utf-8'))
                 await waiting_process.stdin.drain()
                 
