@@ -43,6 +43,10 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     offFilesMessage
   } = useWebSocket()
 
+  // Add deduplication tracking
+  const processedMessages = useRef<Set<string>>(new Set())
+  const lastMessageRef = useRef<{key: string, timestamp: number} | null>(null)
+
   // Tab completion functions
   const getFileSuggestions = useCallback(async (partial: string): Promise<string[]> => {
     if (!terminalConnectedRef.current) {
@@ -327,6 +331,39 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   useEffect(() => {
     const handleCommandResponse = (message: any) => {
       console.log('XTerminal: Received message:', message)
+      
+      // Create a unique key for this message to prevent duplicates
+      const messageKey = `${message.type}-${message.timestamp}-${message.command}-${message.stdout}-${message.stderr}-${message.return_code}`
+      
+      console.log('XTerminal: Generated message key:', messageKey)
+      console.log('XTerminal: Previously processed messages count:', processedMessages.current.size)
+      
+      // Check if we've already processed this message
+      if (processedMessages.current.has(messageKey)) {
+        console.log('XTerminal: Duplicate message detected, skipping:', messageKey)
+        return
+      }
+      
+      // Additional check: if this is the same message as the last one we processed (within 100ms)
+      const now = Date.now()
+      if (lastMessageRef.current && 
+          lastMessageRef.current.key === messageKey && 
+          now - lastMessageRef.current.timestamp < 100) {
+        console.log('XTerminal: Duplicate message detected (timing check), skipping:', messageKey)
+        return
+      }
+      
+      // Add to processed set
+      processedMessages.current.add(messageKey)
+      lastMessageRef.current = { key: messageKey, timestamp: now }
+      console.log('XTerminal: Added message to processed set. Total processed:', processedMessages.current.size)
+      
+      // Keep only the last 100 processed messages to prevent memory leaks
+      if (processedMessages.current.size > 100) {
+        const messagesArray = Array.from(processedMessages.current)
+        processedMessages.current = new Set(messagesArray.slice(-50))
+        console.log('XTerminal: Trimmed processed messages set to 50 entries')
+      }
       
       if (message.type === 'command_response') {
         console.log('XTerminal: Processing command response:', message)

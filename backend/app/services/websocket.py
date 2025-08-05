@@ -188,10 +188,14 @@ class WebSocketManager:
             message: Message to broadcast
         """
         if session_id not in self.session_connections:
+            logger.warning(f"[DEBUG] No session connections found for session_id: {session_id}")
             return
         
         connection_ids = list(self.session_connections[session_id])
+        logger.info(f"[DEBUG] Broadcasting to session {session_id} with {len(connection_ids)} connections: {connection_ids}")
+        
         for connection_id in connection_ids:
+            logger.info(f"[DEBUG] Sending message to connection {connection_id}")
             await self.send_message(connection_id, message)
     
     async def broadcast_to_user(self, user_id: str, message: BaseMessage):
