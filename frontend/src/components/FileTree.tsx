@@ -35,6 +35,8 @@ interface FileTreeProps {
   onFileRename?: (fileId: string, newName: string) => void
   onFileMove?: (fileId: string, newParentPath: string) => void
   onFolderExpansion?: (folderPath: string) => void
+  expandedFolders?: Set<string>
+  onExpandedFoldersChange?: (expandedFolders: Set<string>) => void
 }
 
 // Helper function to get file icon and language based on extension
@@ -77,7 +79,9 @@ const FileTree: React.FC<FileTreeProps> = ({
   onFileDelete,
   onFileRename,
   onFileMove,
-  onFolderExpansion
+  onFolderExpansion,
+  expandedFolders: propExpandedFolders,
+  onExpandedFoldersChange
 }) => {
   const [draggedFile, setDraggedFile] = useState<string | null>(null);
   const [dragOverFile, setDragOverFile] = useState<string | null>(null);
@@ -88,7 +92,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   } | null>(null);
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(propExpandedFolders || new Set());
   const [showCreateDropdown, setShowCreateDropdown] = useState(false);
   const [creatingFile, setCreatingFile] = useState<{ type: 'file' | 'folder', parentPath?: string } | null>(null);
   const [newFileNameInput, setNewFileNameInput] = useState('');
@@ -129,20 +133,30 @@ const FileTree: React.FC<FileTreeProps> = ({
     });
   }, [files]);
 
+  useEffect(() => {
+    if (propExpandedFolders && onExpandedFoldersChange) {
+      onExpandedFoldersChange(expandedFolders);
+    }
+  }, [expandedFolders, propExpandedFolders, onExpandedFoldersChange]);
+
   const handleFileClick = (file: FileNode) => {
     if (file.type === 'file') {
       if (onFileSelect) onFileSelect(file);
     } else {
       // Toggle folder expansion
-      setExpandedFolders(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(file.id)) {
-          newSet.delete(file.id);
-        } else {
-          newSet.add(file.id);
-        }
-        return newSet;
-      });
+      const newExpandedFolders = new Set(expandedFolders);
+      if (newExpandedFolders.has(file.id)) {
+        newExpandedFolders.delete(file.id);
+      } else {
+        newExpandedFolders.add(file.id);
+      }
+      setExpandedFolders(newExpandedFolders);
+      
+      // Notify parent of expanded folders change
+      if (onExpandedFoldersChange) {
+        onExpandedFoldersChange(newExpandedFolders);
+      }
+      
       if (onFolderExpansion) {
         onFolderExpansion(file.path);
       }

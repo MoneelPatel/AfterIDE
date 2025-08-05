@@ -9,9 +9,10 @@ import { useWebSocket } from '../contexts/WebSocketContext'
 interface XTerminalProps {
   onCommand?: (command: string) => void
   isConnected?: boolean
+  containerHeight?: number // Add prop to track container height changes
 }
 
-const XTerminal: React.FC<XTerminalProps> = () => {
+const XTerminal: React.FC<XTerminalProps> = ({ containerHeight }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -788,9 +789,39 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       }
     }
 
+    // Handle window resize
     window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    
+    // Handle container resize using ResizeObserver
+    let resizeObserver: ResizeObserver | null = null
+    if (terminalRef.current) {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            handleResize()
+          }
+        }
+      })
+      resizeObserver.observe(terminalRef.current)
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+    }
   }, [isInitialized])
+
+  // Handle container height changes from parent
+  useEffect(() => {
+    if (fitAddonRef.current && isInitialized && containerHeight) {
+      // Small delay to ensure the container has updated
+      setTimeout(() => {
+        fitAddonRef.current?.fit()
+      }, 50)
+    }
+  }, [containerHeight, isInitialized])
 
   return (
     <div 

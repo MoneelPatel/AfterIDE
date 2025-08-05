@@ -49,6 +49,9 @@ const EditorPage: React.FC = () => {
   const [error, setError] = useState('')
   const [editorHeight, setEditorHeight] = useState(70)
   const [isDragging, setIsDragging] = useState(false)
+  const [fileTreeWidth, setFileTreeWidth] = useState(256) // Default width: 256px (w-64)
+  const [isDraggingFileTree, setIsDraggingFileTree] = useState(false)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [showSessions, setShowSessions] = useState(false)
   const [showFileTree, setShowFileTree] = useState(true)
   const [files, setFiles] = useState<FileNode[]>([])
@@ -154,6 +157,8 @@ const EditorPage: React.FC = () => {
 
   // Build hierarchical tree structure from flat file list
   const buildHierarchicalTree = (flatFiles: FileNode[]): FileNode[] => {
+    console.log('🔄 buildHierarchicalTree called with:', flatFiles.length, 'files');
+    
     const fileMap = new Map<string, FileNode>()
     const rootFiles: FileNode[] = []
     
@@ -161,7 +166,8 @@ const EditorPage: React.FC = () => {
     flatFiles.forEach(file => {
       const nodeWithChildren = {
         ...file,
-        children: file.type === 'folder' ? [] : undefined
+        children: file.type === 'folder' ? [] : undefined,
+        isExpanded: file.type === 'folder' ? expandedFolders.has(file.id) : undefined
       }
       fileMap.set(file.path, nodeWithChildren)
     })
@@ -184,6 +190,14 @@ const EditorPage: React.FC = () => {
         
         if (parentNode && currentNode && parentNode.children) {
           parentNode.children.push(currentNode)
+        } else {
+          console.warn('🔄 Could not establish parent-child relationship:', {
+            file: file.path,
+            parentPath,
+            parentNode: !!parentNode,
+            currentNode: !!currentNode,
+            parentHasChildren: parentNode?.children !== undefined
+          })
         }
       }
     })
@@ -207,7 +221,9 @@ const EditorPage: React.FC = () => {
       return nodes
     }
     
-    return sortNodes(rootFiles)
+    const result = sortNodes(rootFiles)
+    console.log('🔄 buildHierarchicalTree result:', result.length, 'root items');
+    return result
   }
 
   // Handle folder expansion - load files from subdirectory if not already loaded
@@ -473,12 +489,40 @@ const EditorPage: React.FC = () => {
           // Flatten existing tree to get all files
           const flatFiles = flattenFileTree(prevFiles)
           
-          // Update the renamed/moved file's path
-          const updatedFiles = flatFiles.map(file => 
-            file.path === oldPath 
-              ? { ...file, path: newPath, name: newPath.split('/').pop() || file.name }
-              : file
+          // Check if this is a folder rename by looking for files that start with the old path
+          const filesInOldFolder = flatFiles.filter(file => 
+            file.path.startsWith(oldPath + '/') || file.path === oldPath
           )
+          
+          console.log('🔄 Files in old folder:', filesInOldFolder);
+          
+          let updatedFiles: FileNode[]
+          
+          if (filesInOldFolder.length > 1 || (filesInOldFolder.length === 1 && filesInOldFolder[0].path !== oldPath)) {
+            // This is a folder rename - update all files within the folder
+            console.log('🔄 Folder rename detected, updating all files within folder');
+            updatedFiles = flatFiles.map(file => {
+              if (file.path === oldPath) {
+                // Update the folder itself
+                return { ...file, path: newPath, name: newPath.split('/').pop() || file.name }
+              } else if (file.path.startsWith(oldPath + '/')) {
+                // Update files within the folder
+                const newFilePath = file.path.replace(oldPath, newPath)
+                return { ...file, path: newFilePath, name: newFilePath.split('/').pop() || file.name }
+              } else {
+                // Keep other files unchanged
+                return file
+              }
+            })
+          } else {
+            // This is a single file rename - update only the exact path match
+            console.log('🔄 Single file rename detected');
+            updatedFiles = flatFiles.map(file => 
+              file.path === oldPath 
+                ? { ...file, path: newPath, name: newPath.split('/').pop() || file.name }
+                : file
+            )
+          }
           
           console.log('🔄 Updated files after rename:', updatedFiles);
           
@@ -493,14 +537,28 @@ const EditorPage: React.FC = () => {
             path: newPath,
             name: newPath.split('/').pop() || prev.name
           } : null)
+        } else if (selectedFile?.path.startsWith(oldPath + '/')) {
+          // Update selected file if it's within the renamed folder
+          const newSelectedPath = selectedFile.path.replace(oldPath, newPath)
+          setSelectedFile(prev => prev ? {
+            ...prev,
+            path: newSelectedPath,
+            name: newSelectedPath.split('/').pop() || prev.name
+          } : null)
         }
         
         // Update open tabs
-        setOpenTabs(prev => prev.map(tab => 
-          tab.path === oldPath 
-            ? { ...tab, path: newPath, name: newPath.split('/').pop() || tab.name }
-            : tab
-        ))
+        setOpenTabs(prev => prev.map(tab => {
+          if (tab.path === oldPath) {
+            return { ...tab, path: newPath, name: newPath.split('/').pop() || tab.name }
+          } else if (tab.path.startsWith(oldPath + '/')) {
+            // Update tabs for files within the renamed folder
+            const newTabPath = tab.path.replace(oldPath, newPath)
+            return { ...tab, path: newTabPath, name: newTabPath.split('/').pop() || tab.name }
+          } else {
+            return tab
+          }
+        }))
       }
     }
 
@@ -557,6 +615,9 @@ const EditorPage: React.FC = () => {
       if (e.key === 'Escape' && isDragging) {
         setIsDragging(false)
       }
+      if (e.key === 'Escape' && isDraggingFileTree) {
+        setIsDraggingFileTree(false)
+      }
       
       // Prevent default browser Cmd+S and handle file saving
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -571,25 +632,50 @@ const EditorPage: React.FC = () => {
         const newHeight = ((e.clientY - rect.top) / rect.height) * 100
         setEditorHeight(Math.max(20, Math.min(80, newHeight)))
       }
+      
+      if (isDraggingFileTree && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect()
+        const newWidth = e.clientX - rect.left
+        setFileTreeWidth(Math.max(200, Math.min(500, newWidth))) // Min 200px, max 500px
+      }
     }
 
     const handleMouseUp = () => {
       setIsDragging(false)
+      setIsDraggingFileTree(false)
+      // Remove user-select prevention
+      document.body.style.userSelect = ''
+      // Trigger a small delay to ensure terminal resizes after the drag operation
+      setTimeout(() => {
+        // Force a window resize event to trigger terminal resize
+        window.dispatchEvent(new Event('resize'))
+      }, 10)
+    }
+
+    const handleMouseDown = () => {
+      // Prevent text selection during dragging
+      if (isDragging || isDraggingFileTree) {
+        document.body.style.userSelect = 'none'
+      }
     }
 
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', handleMouseDown)
     
-    if (isDragging) {
+    if (isDragging || isDraggingFileTree) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
     }
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', handleMouseDown)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      // Clean up user-select prevention
+      document.body.style.userSelect = ''
     }
-  }, [isDragging])
+  }, [isDragging, isDraggingFileTree])
 
   const fetchSessions = async () => {
     try {
@@ -791,6 +877,7 @@ const EditorPage: React.FC = () => {
     const fileToRename = findFileById(files, fileId)
     if (fileToRename) {
       console.log('🔄 File to rename found:', fileToRename);
+      console.log('🔄 Current files state:', files);
       
       // Create new path with the new name
       const pathParts = fileToRename.path.split('/')
@@ -806,12 +893,11 @@ const EditorPage: React.FC = () => {
         new_filename: newPath
       })
       
-      // Refresh file list to show updated state
-      sendFilesMessage({
-        type: 'file_list',
-        directory: '/'
-      })
-
+      console.log('🔄 Sent rename request to backend');
+      
+      // Don't refresh file list immediately - wait for the backend response
+      // The file_renamed message will handle the UI updates
+      
       // Update tab name
       setOpenTabs(prev => prev.map(tab => 
         tab.id === fileId ? { ...tab, name: newName } : tab
@@ -823,6 +909,7 @@ const EditorPage: React.FC = () => {
       }
     } else {
       console.error('🔄 File not found for rename:', fileId);
+      console.error('🔄 Available files:', files);
     }
   }
 
@@ -1148,18 +1235,36 @@ const EditorPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* File Tree */}
         {showFileTree && (
-          <div className="w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700">
-            <FileTree
-              files={files}
-              selectedFileId={selectedFile?.id}
-              onFileSelect={handleFileSelect}
-              onFileCreate={handleFileCreate}
-              onFileDelete={handleFileDelete}
-              onFileRename={handleFileRename}
-              onFileMove={handleFileMove}
-              onFolderExpansion={handleFolderExpansion}
-            />
-          </div>
+          <>
+            <div 
+              style={{ width: `${fileTreeWidth}px` }} 
+              className="bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex-shrink-0"
+            >
+              <FileTree
+                files={files}
+                selectedFileId={selectedFile?.id}
+                onFileSelect={handleFileSelect}
+                onFileCreate={handleFileCreate}
+                onFileDelete={handleFileDelete}
+                onFileRename={handleFileRename}
+                onFileMove={handleFileMove}
+                onFolderExpansion={handleFolderExpansion}
+                expandedFolders={expandedFolders}
+                onExpandedFoldersChange={setExpandedFolders}
+              />
+            </div>
+            
+            {/* File Tree Resize Handle */}
+            <div
+              className={`w-1 bg-gray-200 dark:bg-gray-700 cursor-ew-resize hover:bg-blue-500 hover:w-2 transition-all duration-200 flex items-center justify-center group ${
+                isDraggingFileTree ? 'bg-blue-500 w-2' : ''
+              }`}
+              onMouseDown={() => setIsDraggingFileTree(true)}
+              title="Drag to resize file tree"
+            >
+              <div className="h-8 w-0.5 bg-gray-400 dark:bg-gray-500 group-hover:bg-blue-300 rounded-full transition-colors"></div>
+            </div>
+          </>
         )}
 
         {/* Editor and Terminal */}
@@ -1206,7 +1311,8 @@ const EditorPage: React.FC = () => {
           <div style={{ height: `${100 - editorHeight}%` }} className="flex-1 min-h-0 flex flex-col terminal-container">
             <XTerminal 
               onCommand={handleTerminalCommand} 
-              isConnected={terminalConnected} 
+              isConnected={terminalConnected}
+              containerHeight={100 - editorHeight}
             />
           </div>
         </div>
