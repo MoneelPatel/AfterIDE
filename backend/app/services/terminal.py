@@ -718,6 +718,25 @@ class TerminalService:
             # Ensure the temp workspace directory exists
             os.makedirs(temp_workspace, exist_ok=True)
             
+            # Debug: Check workspace directory status
+            logger.info(f"[WORKSPACE DEBUG] Created temp workspace: {temp_workspace}")
+            if os.path.exists(temp_workspace):
+                logger.info(f"[WORKSPACE DEBUG] Directory exists and is accessible")
+                logger.info(f"[WORKSPACE DEBUG] Directory permissions: {oct(os.stat(temp_workspace).st_mode)}")
+            else:
+                logger.error(f"[WORKSPACE DEBUG] Directory does not exist after creation!")
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": f"Failed to create workspace directory: {temp_workspace}\n",
+                    "return_code": 1,
+                    "execution_time": 0.0,
+                    "command": command
+                }
+            
+            # Sync ALL workspace files to temp directory for full file I/O support
+            await self._sync_workspace_to_temp(session_id, temp_workspace)
+            
             # Extract Python code/filename from command
             if command.startswith('python '):
                 python_arg = command[7:].strip()  # Remove 'python ' prefix
@@ -781,7 +800,12 @@ class TerminalService:
                     f.write(file_content)
                 
                 # Execute the Python file with interactive input support
-                return await self._execute_python_interactive(session_id, file_path, temp_workspace, timeout)
+                result = await self._execute_python_interactive(session_id, file_path, temp_workspace, timeout)
+                
+                # Sync modified files back to workspace after execution
+                await self._sync_temp_to_workspace(session_id, temp_workspace)
+                
+                return result
             else:
                 # This is inline code execution - create temporary file with the code
                 # Create temporary file for Python code
@@ -796,7 +820,12 @@ class TerminalService:
                 
                 try:
                     # Execute Python code with interactive input support
-                    return await self._execute_python_interactive(session_id, temp_file, temp_workspace, timeout)
+                    result = await self._execute_python_interactive(session_id, temp_file, temp_workspace, timeout)
+                    
+                    # Sync modified files back to workspace after execution
+                    await self._sync_temp_to_workspace(session_id, temp_workspace)
+                    
+                    return result
                 finally:
                     # Clean up temporary file
                     try:
@@ -873,14 +902,31 @@ class TerminalService:
                             session["input_received"] = False  # Clear the flag
                             
                         # Read one character at a time to avoid blocking
-                        char_bytes = await asyncio.wait_for(process.stdout.read(1), timeout=0.1)
+                        char_bytes = await asyncio.wait_for(process.stdout.read(1), timeout=1.0)
                         if not char_bytes:
                             logger.info(f"[STREAMING DEBUG] No more stdout data for session {session_id}")
                             # Check if process has terminated
                             if process.returncode is not None:
+                                # Process has terminated, send any remaining line and break
+                                if current_line.strip():
+                                    stdout_data.append(current_line)
+                                    logger.info(f"[STREAMING DEBUG] Sending final stdout line for session {session_id}: {repr(current_line)}")
+                                    if self.websocket_manager:
+                                        print(f"[STREAMING DEBUG] PYTHON HANDLER sending real-time stdout to session {session_id}: {repr(current_line)} [BROADCAST #{id(process)}]")
+                                        await self.websocket_manager.broadcast_to_session(
+                                            session_id,
+                                            CommandResponseMessage(
+                                                type=MessageType.COMMAND_RESPONSE,
+                                                command=f"python3 -u {file_path}",
+                                                stdout=current_line,
+                                                stderr="",
+                                                return_code=-1,  # Streaming output indicator
+                                                working_directory=cwd
+                                            )
+                                        )
                                 break
-                            # Don't send any remaining line - it might cause duplication
-                            break
+                            # Process is still running but no data available, continue waiting
+                            continue
                         
                         char = char_bytes.decode('utf-8')
                         current_line += char
@@ -910,11 +956,31 @@ class TerminalService:
                             current_line = ""  # Reset for next line
                             
                     except asyncio.TimeoutError:
-                        # Timeout while reading - check for input prompts
+                        # Timeout while reading - check if process is still running
                         print(f"[STDOUT DEBUG] Timeout reading stdout, current_line: {repr(current_line)}, process running: {process.returncode is None}")
                         
+                        # If process has terminated, try to get any remaining output and exit
+                        if process.returncode is not None:
+                            print(f"[STDOUT DEBUG] Process terminated during timeout, breaking")
+                            if current_line.strip():
+                                stdout_data.append(current_line)
+                                print(f"[STDOUT DEBUG] Sending final line: {repr(current_line)}")
+                                if self.websocket_manager:
+                                    await self.websocket_manager.broadcast_to_session(
+                                        session_id,
+                                        CommandResponseMessage(
+                                            type=MessageType.COMMAND_RESPONSE,
+                                            command=f"python3 -u {file_path}",
+                                            stdout=current_line,
+                                            stderr="",
+                                            return_code=-1,
+                                            working_directory=cwd
+                                        )
+                                    )
+                            break
+                        
                         # Only detect as input prompt if we have content and no newline arrives after a delay
-                        if process.returncode is None and current_line and not current_line.endswith('\n') and not input_request_sent:
+                        if current_line and not current_line.endswith('\n') and not input_request_sent:
                             # This looks like an input prompt - send it immediately
                             print(f"[STDOUT DEBUG] Detected input prompt, sending: {repr(current_line)}")
                             logger.info(f"[STREAMING DEBUG] Detected input prompt, sending: {repr(current_line)}")
@@ -974,7 +1040,7 @@ class TerminalService:
                             logger.info(f"[STREAMING DEBUG] Session {session_id} was interrupted, stopping stderr reading")
                             break
                             
-                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        line = await asyncio.wait_for(process.stderr.readline(), timeout=1.0)
                         if not line:
                             # Check if process has terminated
                             if process.returncode is not None:
@@ -1013,23 +1079,41 @@ class TerminalService:
             await process.wait()
             logger.info(f"[DEBUG] Process completed with return code {process.returncode}, session {session_id}")
             
-            # Cancel reading tasks
-            if stdout_task:
-                stdout_task.cancel()
-            if stderr_task:
-                stderr_task.cancel()
+            # Wait for reading tasks to complete naturally since process is done
+            print(f"[DEBUG] Process completed, waiting for reading tasks to finish collecting remaining output")
             
-            # Wait for tasks to complete
+            # Wait for tasks to complete naturally with a timeout
             try:
+                if stdout_task and stderr_task:
+                    await asyncio.wait_for(asyncio.gather(stdout_task, stderr_task, return_exceptions=True), timeout=2.0)
+                elif stdout_task:
+                    await asyncio.wait_for(stdout_task, timeout=2.0)
+                elif stderr_task:
+                    await asyncio.wait_for(stderr_task, timeout=2.0)
+                print(f"[DEBUG] Reading tasks completed naturally")
+            except asyncio.TimeoutError:
+                print(f"[DEBUG] Reading tasks timed out, cancelling them")
                 if stdout_task:
-                    await stdout_task
-            except asyncio.CancelledError:
-                pass
-            try:
+                    stdout_task.cancel()
                 if stderr_task:
-                    await stderr_task
-            except asyncio.CancelledError:
-                pass
+                    stderr_task.cancel()
+                # Wait for cancellation to complete
+                try:
+                    if stdout_task:
+                        await stdout_task
+                except asyncio.CancelledError:
+                    pass
+                try:
+                    if stderr_task:
+                        await stderr_task
+                except asyncio.CancelledError:
+                    pass
+            except Exception as e:
+                print(f"[DEBUG] Error waiting for reading tasks: {e}")
+                if stdout_task:
+                    stdout_task.cancel()
+                if stderr_task:
+                    stderr_task.cancel()
             
             # Clean up process reference after completion
             if session_id in self.active_processes:
@@ -2663,7 +2747,7 @@ class TerminalService:
                             logger.info(f"[STREAMING DEBUG] Session {session_id} was interrupted, stopping stderr reading")
                             break
                             
-                        line = await asyncio.wait_for(process.stderr.readline(), timeout=0.1)
+                        line = await asyncio.wait_for(process.stderr.readline(), timeout=1.0)
                         if not line:
                             # Check if process has terminated
                             if process.returncode is not None:
@@ -2909,6 +2993,80 @@ class TerminalService:
                 
         except Exception as e:
             logger.error("Error handling input response", session_id=session_id, error=str(e))
+    
+    async def _sync_workspace_to_temp(self, session_id: str, temp_workspace: str):
+        """Sync all workspace files to temporary directory before Python execution."""
+        try:
+            print(f"[FILE SYNC] Syncing workspace files to temp directory: {temp_workspace}")
+            
+            # Get all files from the workspace
+            workspace_files = await self.workspace_service.get_workspace_files(session_id, "/")
+            
+            for file_info in workspace_files:
+                if file_info.get("type") == "file":
+                    file_path = file_info.get("path", file_info.get("name", ""))
+                    if file_path:
+                        try:
+                            # Get file content from workspace
+                            file_content = await self.workspace_service.get_file_content(session_id, file_path)
+                            if file_content is not None:
+                                # Create the full path in temp directory
+                                temp_file_path = os.path.join(temp_workspace, file_path.lstrip("/"))
+                                
+                                # Ensure directory exists
+                                os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
+                                
+                                # Write file to temp directory
+                                with open(temp_file_path, 'w', encoding='utf-8') as f:
+                                    f.write(file_content)
+                                    
+                                print(f"[FILE SYNC] Synced file: {file_path} -> {temp_file_path}")
+                        except Exception as e:
+                            print(f"[FILE SYNC] Error syncing file {file_path}: {e}")
+                            
+            print(f"[FILE SYNC] Workspace sync completed to {temp_workspace}")
+            
+        except Exception as e:
+            print(f"[FILE SYNC] Error during workspace sync: {e}")
+            logger.error("Error syncing workspace to temp", session_id=session_id, error=str(e))
+    
+    async def _sync_temp_to_workspace(self, session_id: str, temp_workspace: str):
+        """Sync modified files from temporary directory back to workspace after Python execution."""
+        try:
+            print(f"[FILE SYNC] Syncing temp directory back to workspace: {temp_workspace}")
+            
+            # Walk through all files in temp directory
+            for root, dirs, files in os.walk(temp_workspace):
+                for file_name in files:
+                    temp_file_path = os.path.join(root, file_name)
+                    
+                    # Calculate relative path from temp workspace
+                    relative_path = os.path.relpath(temp_file_path, temp_workspace)
+                    workspace_path = "/" + relative_path.replace("\\", "/")  # Normalize path separators
+                    
+                    try:
+                        # Read file content from temp directory
+                        with open(temp_file_path, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        
+                        # Save to workspace (this will create or update the file)
+                        await self.workspace_service.save_file(
+                            session_id=session_id,
+                            filepath=workspace_path,
+                            content=file_content,
+                            language="python" if workspace_path.endswith('.py') else "text"
+                        )
+                        
+                        print(f"[FILE SYNC] Synced back to workspace: {temp_file_path} -> {workspace_path}")
+                        
+                    except Exception as e:
+                        print(f"[FILE SYNC] Error syncing file {temp_file_path} back to workspace: {e}")
+            
+            print(f"[FILE SYNC] Temp to workspace sync completed")
+            
+        except Exception as e:
+            print(f"[FILE SYNC] Error during temp to workspace sync: {e}")
+            logger.error("Error syncing temp to workspace", session_id=session_id, error=str(e))
     
     async def _execute_help(self) -> Dict[str, Any]:
         """Execute help command."""
