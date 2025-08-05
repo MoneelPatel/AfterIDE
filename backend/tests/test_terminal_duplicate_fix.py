@@ -176,11 +176,11 @@ class TestTerminalDuplicateIssues:
             # With our current fix, this should return an error from the Python handler
             # and NOT fall through to the general handler
             assert result["success"] is False
-            assert "Python execution error" in result["stderr"]
+            assert "Python handler disabled for test" in result["stderr"]
             
             # The general handler should NOT have been called
             # (we'd see different error messages if it was)
-            assert "Command not supported" in result["stderr"]  # Our current general handler response
+            assert "Command not supported" not in result["stderr"]  # Our current general handler response
             
         finally:
             # Restore original handler

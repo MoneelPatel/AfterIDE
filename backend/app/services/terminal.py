@@ -376,15 +376,66 @@ class TerminalService:
             if session_id in self.sessions:
                 self.sessions[session_id]["last_activity"] = datetime.utcnow()
                 self.sessions[session_id]["command_count"] += 1
+                # Store connection ID for input handling
+                if connection_id:
+                    self.sessions[session_id]["command_connection_id"] = connection_id
             
-            # Create sandbox for execution
-            sandbox = CommandSandbox(session_id, working_directory or "/")
+            # Get working directory
+            if working_directory is None:
+                working_directory = self.get_working_directory(session_id)
             
-            async with sandbox.create_sandbox() as (sandbox_dir, env):
-                # Execute command in sandbox
-                result = await self._execute_in_sandbox(
-                    session_id, command, timeout, sandbox_dir, env
-                )
+            # Route commands to appropriate handlers
+            command_lower = command.strip().lower()
+            
+            # Handle built-in commands
+            if command_lower == "help":
+                result = await self._execute_help()
+            elif command_lower == "clear":
+                result = await self._execute_clear()
+            elif command_lower == "pwd":
+                result = await self._execute_pwd(session_id, working_directory)
+            elif command_lower.startswith("echo "):
+                result = await self._execute_echo(command, session_id)
+            elif command_lower.startswith("cd "):
+                result = await self._execute_cd(session_id, command)
+            elif command_lower.startswith("ls"):
+                result = await self._execute_ls(session_id, working_directory, command)
+            elif command_lower.startswith("cat "):
+                result = await self._execute_cat(session_id, working_directory, command)
+            elif command_lower.startswith("mkdir "):
+                result = await self._execute_mkdir(session_id, working_directory, command)
+            elif command_lower.startswith("touch "):
+                result = await self._execute_touch(session_id, working_directory, command)
+            elif command_lower.startswith("cp "):
+                result = await self._execute_cp(session_id, working_directory, command)
+            elif command_lower.startswith("mv "):
+                result = await self._execute_mv(session_id, working_directory, command)
+            elif command_lower.startswith("rm "):
+                result = await self._execute_rm(session_id, working_directory, command)
+            elif command_lower.startswith("grep "):
+                result = await self._execute_grep(session_id, working_directory, command)
+            elif command_lower.startswith("find "):
+                result = await self._execute_find(session_id, working_directory, command)
+            elif command_lower.startswith("head "):
+                result = await self._execute_head(session_id, working_directory, command)
+            elif command_lower.startswith("tail "):
+                result = await self._execute_tail(session_id, working_directory, command)
+            elif command_lower.startswith("wc "):
+                result = await self._execute_wc(session_id, working_directory, command)
+            elif command_lower.startswith("sort "):
+                result = await self._execute_sort(session_id, working_directory, command)
+            elif command_lower.startswith("uniq "):
+                result = await self._execute_uniq(session_id, working_directory, command)
+            elif command_lower.startswith("pip "):
+                result = await self._execute_pip(session_id, working_directory, command, timeout)
+            elif command_lower.startswith("python ") or command_lower.startswith("python3 "):
+                result = await self._execute_python(session_id, working_directory, command, timeout)
+            elif "|" in command:
+                # Handle pipelines
+                result = await self._execute_simple_pipeline(session_id, command, timeout, working_directory)
+            else:
+                # Use general command handler for other commands
+                result = await self._execute_general_command(session_id, working_directory, command, timeout)
             
             # Update execution statistics
             execution_time = time.time() - start_time
