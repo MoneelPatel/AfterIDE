@@ -438,43 +438,72 @@ class WorkspaceService:
     
     async def rename_file(self, session_id: str, old_filepath: str, new_filepath: str) -> bool:
         """
-        Rename a file in the workspace.
+        Rename a file or folder in the workspace.
         
         Args:
             session_id: Session identifier
-            old_filepath: Current file path
-            new_filepath: New file path
+            old_filepath: Current file/folder path
+            new_filepath: New file/folder path
             
         Returns:
-            bool: True if file was renamed successfully
+            bool: True if file/folder was renamed successfully
         """
         try:
-            # Find the file
-            file_stmt = select(File).where(
-                File.session_id == session_id,
-                File.filepath == old_filepath
+            # Check if this is a folder rename (old_filepath ends with / or is a directory)
+            # First, let's check if there are any files that start with the old path
+            folder_files_stmt = select(File).where(
+                and_(
+                    File.session_id == session_id,
+                    File.filepath.startswith(old_filepath + "/")
+                )
             )
-            result = await self.db.execute(file_stmt)
-            file = result.scalar_one_or_none()
+            result = await self.db.execute(folder_files_stmt)
+            folder_files = result.scalars().all()
             
-            if file:
-                # Update file path and filename
-                file.filepath = new_filepath
-                file.filename = os.path.basename(new_filepath)
+            if folder_files:
+                # This is a folder rename - update all files within the folder
+                logger.info("Folder rename detected", session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath)
                 
-                # Update checksum if needed
-                file.update_content(file.content)
+                for file in folder_files:
+                    # Calculate new path by replacing the old folder path with the new one
+                    new_file_path = file.filepath.replace(old_filepath, new_filepath, 1)
+                    file.filepath = new_file_path
+                    file.filename = os.path.basename(new_file_path)
+                    # Update checksum if needed
+                    file.update_content(file.content)
                 
                 await self.db.commit()
-                await self.db.refresh(file)
-                logger.info("File renamed successfully", session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath)
+                logger.info("Folder renamed successfully", session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath, files_updated=len(folder_files))
                 return True
             else:
-                logger.warning("File not found for rename", session_id=session_id, filepath=old_filepath)
-                return False
+                # This is a single file rename
+                file_stmt = select(File).where(
+                    and_(
+                        File.session_id == session_id,
+                        File.filepath == old_filepath
+                    )
+                )
+                result = await self.db.execute(file_stmt)
+                file = result.scalar_one_or_none()
+                
+                if file:
+                    # Update file path and filename
+                    file.filepath = new_filepath
+                    file.filename = os.path.basename(new_filepath)
+                    
+                    # Update checksum if needed
+                    file.update_content(file.content)
+                    
+                    await self.db.commit()
+                    await self.db.refresh(file)
+                    logger.info("File renamed successfully", session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath)
+                    return True
+                else:
+                    logger.warning("File not found for rename", session_id=session_id, filepath=old_filepath)
+                    return False
                 
         except Exception as e:
-            logger.error("Error renaming file", error=str(e), session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath)
+            logger.error("Error renaming file/folder", error=str(e), session_id=session_id, old_filepath=old_filepath, new_filepath=new_filepath)
             await self.db.rollback()
             return False
 

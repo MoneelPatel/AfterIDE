@@ -587,11 +587,22 @@ class WebSocketManager:
                 
                 # Rename file in database using workspace service
                 if self.workspace_service:
+                    logger.info("Calling workspace service rename_file", 
+                              session_id=session_id, 
+                              old_filename=file_msg.old_filename, 
+                              new_filename=file_msg.new_filename)
+                    
                     success = await self.workspace_service.rename_file(
                         session_id=session_id,
                         old_filepath=file_msg.old_filename,
                         new_filepath=file_msg.new_filename
                     )
+                    
+                    logger.info("Workspace service rename_file result", 
+                              success=success, 
+                              session_id=session_id, 
+                              old_filename=file_msg.old_filename, 
+                              new_filename=file_msg.new_filename)
                     
                     if success:
                         # Broadcast rename notification to all connections in the session
@@ -603,6 +614,17 @@ class WebSocketManager:
                             renamed_by=connection_id
                         )
                         await self.broadcast_to_session(session_id, broadcast_message)
+                        logger.info("File rename broadcast sent", 
+                                  session_id=session_id, 
+                                  old_filename=file_msg.old_filename, 
+                                  new_filename=file_msg.new_filename)
+                    else:
+                        logger.error("File rename failed", 
+                                   session_id=session_id, 
+                                   old_filename=file_msg.old_filename, 
+                                   new_filename=file_msg.new_filename)
+                else:
+                    logger.error("Workspace service not available for file rename")
                 
             elif message.type == MessageType.FOLDER_CREATE:
                 # Handle folder creation

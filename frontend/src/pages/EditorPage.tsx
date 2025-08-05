@@ -467,6 +467,8 @@ const EditorPage: React.FC = () => {
         const oldPath = message.old_filename
         const newPath = message.new_filename
         
+        console.log('🔄 file_renamed message received:', { oldPath, newPath });
+        
         setFiles(prevFiles => {
           // Flatten existing tree to get all files
           const flatFiles = flattenFileTree(prevFiles)
@@ -477,6 +479,8 @@ const EditorPage: React.FC = () => {
               ? { ...file, path: newPath, name: newPath.split('/').pop() || file.name }
               : file
           )
+          
+          console.log('🔄 Updated files after rename:', updatedFiles);
           
           // Rebuild hierarchical tree
           return buildHierarchicalTree(updatedFiles)
@@ -528,14 +532,15 @@ const EditorPage: React.FC = () => {
         } else if (message.command.startsWith('ls')) {
           // Directory listing was shown
           console.log('Directory listing shown in terminal')
-        } else if (message.command.startsWith('cd ') && message.working_directory) {
-          // Directory changed - update file tree to show new directory contents
-          console.log('Directory changed via cd command, updating file tree for:', message.working_directory)
+        } else if (message.command.startsWith('touch ') || message.command.startsWith('mkdir ') || message.command.startsWith('echo ') || message.command.includes('>')) {
+          // File or directory creation detected - update file tree
+          console.log('File/directory creation detected in terminal, updating file tree')
           sendFilesMessage({
             type: 'file_list',
-            directory: message.working_directory
+            directory: '/'
           })
         }
+        // Removed automatic file tree updates for cd commands to prevent unwanted expansion/shrinking
       }
     }
 
@@ -769,6 +774,8 @@ const EditorPage: React.FC = () => {
   }
 
   const handleFileRename = (fileId: string, newName: string) => {
+    console.log('🔄 handleFileRename called:', { fileId, newName });
+    
     // Find the file to get its current path
     const findFileById = (files: FileNode[], id: string): FileNode | null => {
       for (const file of files) {
@@ -783,10 +790,14 @@ const EditorPage: React.FC = () => {
 
     const fileToRename = findFileById(files, fileId)
     if (fileToRename) {
+      console.log('🔄 File to rename found:', fileToRename);
+      
       // Create new path with the new name
       const pathParts = fileToRename.path.split('/')
       pathParts[pathParts.length - 1] = newName
       const newPath = pathParts.join('/')
+
+      console.log('🔄 Rename paths:', { oldPath: fileToRename.path, newPath });
 
       // Send rename request to backend
       sendFilesMessage({
@@ -810,6 +821,8 @@ const EditorPage: React.FC = () => {
       if (selectedFile?.id === fileId) {
         setSelectedFile(prev => prev ? { ...prev, name: newName } : null)
       }
+    } else {
+      console.error('🔄 File not found for rename:', fileId);
     }
   }
 

@@ -315,7 +315,11 @@ const FileTree: React.FC<FileTreeProps> = ({
                   type="text"
                   value={newFileName}
                   onChange={(e) => setNewFileName(e.target.value)}
-                  onBlur={handleRenameCancel}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      handleRenameCancel();
+                    }
+                  }}
                   autoFocus
                   className="w-full px-1 py-0 text-sm bg-white dark:bg-gray-800 border border-blue-500 rounded focus:outline-none"
                 />
