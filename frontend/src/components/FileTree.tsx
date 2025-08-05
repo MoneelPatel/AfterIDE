@@ -53,6 +53,7 @@ const getFileInfo = (filename: string) => {
     md: { icon: '📝', language: 'markdown', color: 'text-gray-600' },
     txt: { icon: '📄', language: 'text', color: 'text-gray-500' },
     sql: { icon: '🗄️', language: 'sql', color: 'text-purple-500' },
+    csv: { icon: '📊', language: 'csv', color: 'text-green-600' },
     yaml: { icon: '⚙️', language: 'yaml', color: 'text-red-500' },
     yml: { icon: '⚙️', language: 'yaml', color: 'text-red-500' },
     xml: { icon: '📰', language: 'xml', color: 'text-orange-600' },

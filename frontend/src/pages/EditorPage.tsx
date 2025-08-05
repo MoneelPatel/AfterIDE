@@ -707,6 +707,7 @@ const EditorPage: React.FC = () => {
         md: 'markdown',
         txt: 'text',
         sql: 'sql',
+        csv: 'csv',
         yaml: 'yaml',
         yml: 'yaml'
       }
@@ -1104,6 +1105,7 @@ const EditorPage: React.FC = () => {
       md: 'markdown',
       txt: 'text',
       sql: 'sql',
+      csv: 'csv',
       yaml: 'yaml',
       yml: 'yaml'
     }

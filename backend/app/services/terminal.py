@@ -800,7 +800,9 @@ class TerminalService:
                     f.write(file_content)
                 
                 # Execute the Python file with interactive input support
-                result = await self._execute_python_interactive(session_id, file_path, temp_workspace, timeout)
+                # Set cwd to the directory containing the Python file so relative paths work correctly
+                python_file_dir = os.path.dirname(file_path)
+                result = await self._execute_python_interactive(session_id, file_path, python_file_dir, timeout)
                 
                 # Sync modified files back to workspace after execution
                 await self._sync_temp_to_workspace(session_id, temp_workspace)
@@ -3045,16 +3047,50 @@ class TerminalService:
                     workspace_path = "/" + relative_path.replace("\\", "/")  # Normalize path separators
                     
                     try:
-                        # Read file content from temp directory
-                        with open(temp_file_path, 'r', encoding='utf-8') as f:
-                            file_content = f.read()
+                        # Read file content from temp directory with better error handling
+                        try:
+                            with open(temp_file_path, 'r', encoding='utf-8') as f:
+                                file_content = f.read()
+                        except UnicodeDecodeError:
+                            # If UTF-8 fails, try with other encodings
+                            print(f"[FILE SYNC] UTF-8 failed for {temp_file_path}, trying other encodings")
+                            try:
+                                with open(temp_file_path, 'r', encoding='latin-1') as f:
+                                    file_content = f.read()
+                            except Exception as e:
+                                print(f"[FILE SYNC] All encodings failed for {temp_file_path}, reading as binary: {e}")
+                                with open(temp_file_path, 'rb') as f:
+                                    file_content = f.read().decode('utf-8', errors='replace')
+                        
+                        # Determine file language based on extension
+                        file_extension = workspace_path.split('.')[-1].lower() if '.' in workspace_path else 'txt'
+                        language_map = {
+                            'py': 'python',
+                            'js': 'javascript',
+                            'ts': 'typescript',
+                            'html': 'html',
+                            'css': 'css',
+                            'json': 'json',
+                            'md': 'markdown',
+                            'csv': 'csv',
+                            'txt': 'text',
+                            'sql': 'sql',
+                            'yaml': 'yaml',
+                            'yml': 'yaml'
+                        }
+                        file_language = language_map.get(file_extension, 'text')
+                        
+                        # Debug: Log file content being synced back
+                        print(f"[FILE SYNC DEBUG] Syncing file {workspace_path}: content length = {len(file_content)}, language = {file_language}")
+                        if len(file_content) == 0:
+                            print(f"[FILE SYNC WARNING] File {workspace_path} has empty content!")
                         
                         # Save to workspace (this will create or update the file)
                         await self.workspace_service.save_file(
                             session_id=session_id,
                             filepath=workspace_path,
                             content=file_content,
-                            language="python" if workspace_path.endswith('.py') else "text"
+                            language=file_language
                         )
                         
                         print(f"[FILE SYNC] Synced back to workspace: {temp_file_path} -> {workspace_path}")

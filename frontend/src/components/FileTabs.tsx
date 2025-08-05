@@ -86,6 +86,8 @@ const FileTabs: React.FC<FileTabsProps> = ({
         return '📋';
       case 'markdown':
         return '📝';
+      case 'csv':
+        return '📊';
       default:
         return '📄';
     }
@@ -107,6 +109,8 @@ const FileTabs: React.FC<FileTabsProps> = ({
         return 'border-green-500';
       case 'markdown':
         return 'border-gray-500';
+      case 'csv':
+        return 'border-green-600';
       default:
         return 'border-gray-400';
     }
