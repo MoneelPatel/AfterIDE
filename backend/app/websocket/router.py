@@ -137,22 +137,31 @@ async def websocket_terminal(
         while True:
             try:
                 # Receive message
+                print(f"[WEBSOCKET ROUTER] Waiting for message on connection {connection_id}")
                 data = await websocket.receive_text()
+                print(f"[WEBSOCKET ROUTER] Received raw data: {data}")
                 message = json.loads(data)
+                print(f"[WEBSOCKET ROUTER] Parsed message: {message}")
                 
                 # Process message
+                print(f"[WEBSOCKET ROUTER] Calling handle_terminal_message for connection {connection_id}")
                 await websocket_manager.handle_terminal_message(
                     connection_id=connection_id,
                     message_data=message
                 )
+                print(f"[WEBSOCKET ROUTER] Message processed successfully for connection {connection_id}")
+                print(f"[WEBSOCKET ROUTER] About to wait for next message on connection {connection_id}")
                 
             except WebSocketDisconnect:
+                print(f"[WEBSOCKET ROUTER] WebSocket disconnected for connection {connection_id}")
                 break
-            except json.JSONDecodeError:
-                logger.warning("Invalid JSON received", connection_id=connection_id)
+            except json.JSONDecodeError as e:
+                print(f"[WEBSOCKET ROUTER] JSON decode error: {e}")
+                logger.warning("Invalid JSON received", connection_id=connection_id, error=str(e))
                 error_msg = create_error_message("INVALID_JSON", "Invalid JSON format")
                 await websocket_manager.send_message(connection_id, error_msg)
             except Exception as e:
+                print(f"[WEBSOCKET ROUTER] Unexpected error: {e}")
                 logger.error("WebSocket error", error=str(e), connection_id=connection_id)
                 error_msg = create_error_message("INTERNAL_ERROR", "Internal server error")
                 await websocket_manager.send_message(connection_id, error_msg)
@@ -248,11 +257,13 @@ async def websocket_files(
                 
             except WebSocketDisconnect:
                 break
-            except json.JSONDecodeError:
-                logger.warning("Invalid JSON received", connection_id=connection_id)
+            except json.JSONDecodeError as e:
+                print(f"[WEBSOCKET ROUTER] JSON decode error: {e}")
+                logger.warning("Invalid JSON received", connection_id=connection_id, error=str(e))
                 error_msg = create_error_message("INVALID_JSON", "Invalid JSON format")
                 await websocket_manager.send_message(connection_id, error_msg)
             except Exception as e:
+                print(f"[WEBSOCKET ROUTER] Unexpected error: {e}")
                 logger.error("WebSocket error", error=str(e), connection_id=connection_id)
                 error_msg = create_error_message("INTERNAL_ERROR", "Internal server error")
                 await websocket_manager.send_message(connection_id, error_msg)

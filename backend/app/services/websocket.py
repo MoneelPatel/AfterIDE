@@ -18,6 +18,7 @@ from app.schemas.websocket import (
     FileDeleteMessage, FileRenameMessage, FolderCreateMessage,
     PongMessage, InputResponseMessage, InterruptMessage
 )
+import asyncio
 from app.services.terminal import terminal_service
 from app.services.workspace import WorkspaceService
 
@@ -158,7 +159,12 @@ class WebSocketManager:
             connection_id: Target connection identifier
             message: Message to send
         """
+        print(f"[WEBSOCKET SEND] Attempting to send message to connection {connection_id}")
+        print(f"[WEBSOCKET SEND] Message type: {message.type}")
+        print(f"[WEBSOCKET SEND] Connection exists: {connection_id in self.connections}")
+        
         if connection_id not in self.connections:
+            print(f"[WEBSOCKET SEND] Connection {connection_id} not found, queuing message")
             # Queue message for later delivery
             if connection_id not in self.message_queue:
                 self.message_queue[connection_id] = []
@@ -167,8 +173,12 @@ class WebSocketManager:
         
         try:
             websocket = self.connections[connection_id]
-            await websocket.send_text(message.model_dump_json())
+            message_json = message.model_dump_json()
+            print(f"[WEBSOCKET SEND] Sending message JSON: {message_json}")
+            await websocket.send_text(message_json)
+            print(f"[WEBSOCKET SEND] Message sent successfully to connection {connection_id}")
         except Exception as e:
+            print(f"[WEBSOCKET SEND] ERROR sending message to connection {connection_id}: {e}")
             logger.error(
                 "Failed to send message",
                 connection_id=connection_id,
@@ -222,9 +232,19 @@ class WebSocketManager:
             message_data: Received message data
         """
         try:
+            # Force debug logging for all messages
+            print(f"[WEBSOCKET DEBUG] Received raw message: {message_data}")
+            print(f"[WEBSOCKET DEBUG] Message type: {message_data.get('type', 'NO TYPE')}")
+            
             # Validate message
             message = validate_message(message_data)
             print(f"[DEBUG] Terminal WebSocket received message type: {message.type}")  # Debug all messages
+            
+            # Extra debug for input response
+            if message_data.get("type") == "input_response":
+                print(f"[INPUT DEBUG] Raw input_response message received: {message_data}")
+                print(f"[INPUT DEBUG] Message data keys: {list(message_data.keys())}")
+                print(f"[INPUT DEBUG] Input value: {message_data.get('input', 'NO INPUT KEY FOUND')}")
             
             if message.type == MessageType.COMMAND:
                 # Handle terminal command
@@ -238,62 +258,14 @@ class WebSocketManager:
                     command=command_msg.command[:100]  # Truncate for logging
                 )
                 
-                # Execute command using terminal service
-                result = await terminal_service.execute_command(
+                # Execute command asynchronously in background to avoid blocking WebSocket message loop
+                print(f"[WEBSOCKET DEBUG] Starting async command execution for {command_msg.command}")
+                asyncio.create_task(self._execute_command_async(
+                    connection_id=connection_id,
                     session_id=session_id,
-                    command=command_msg.command,
-                    timeout=30,
-                    working_directory=command_msg.working_directory,
-                    connection_id=connection_id  # Pass the connection ID
-                )
-                
-                # Check if this was a streaming command (empty stdout/stderr means it was already streamed)
-                is_streaming_command = (result["stdout"] == "" and result["stderr"] == "")
-                
-                # Only send final response if it wasn't already streamed
-                if not is_streaming_command:
-                    # Create response message
-                    response = CommandResponseMessage(
-                        type=MessageType.COMMAND_RESPONSE,
-                        command=command_msg.command,
-                        stdout=result["stdout"],
-                        stderr=result["stderr"],
-                        return_code=result["return_code"],
-                        execution_time=result.get("execution_time", 0.0),
-                        working_directory=result.get("working_directory")
-                    )
-                    
-                    logger.info(
-                        "Sending command response",
-                        connection_id=connection_id,
-                        session_id=session_id,
-                        command=command_msg.command,
-                        working_directory=result.get("working_directory"),
-                        has_working_directory=bool(result.get("working_directory"))
-                    )
-                    
-                    await self.send_message(connection_id, response)
-                else:
-                    # This was a streaming command - send only a completion signal with no output
-                    response = CommandResponseMessage(
-                        type=MessageType.COMMAND_RESPONSE,
-                        command=command_msg.command,
-                        stdout="",
-                        stderr="",
-                        return_code=result["return_code"],
-                        execution_time=result.get("execution_time", 0.0),
-                        working_directory=result.get("working_directory")
-                    )
-                    
-                    logger.info(
-                        "Sending streaming command completion signal",
-                        connection_id=connection_id,
-                        session_id=session_id,
-                        command=command_msg.command,
-                        return_code=result["return_code"]
-                    )
-                    
-                    await self.send_message(connection_id, response)
+                    command_msg=command_msg
+                ))
+                print(f"[WEBSOCKET DEBUG] Command execution task created, continuing to process messages")
                 
             elif message.type == MessageType.PING:
                 # Handle ping
@@ -302,8 +274,15 @@ class WebSocketManager:
                 
             elif message.type == MessageType.INPUT_RESPONSE:
                 # Handle input response from frontend
+                print(f"[INPUT DEBUG] *** INPUT_RESPONSE MESSAGE RECEIVED ***")
                 input_msg = InputResponseMessage(**message_data)
                 session_id = self.connection_metadata.get(connection_id, {}).get("session_id")
+                
+                print(f"[INPUT DEBUG] Input response received from frontend:")
+                print(f"[INPUT DEBUG] - connection_id: {connection_id}")
+                print(f"[INPUT DEBUG] - session_id: {session_id}")
+                print(f"[INPUT DEBUG] - input: {repr(input_msg.input)}")
+                print(f"[INPUT DEBUG] - input_length: {len(input_msg.input)}")
                 
                 logger.info(
                     "Input response received",
@@ -314,9 +293,12 @@ class WebSocketManager:
                 
                 # Forward input to the waiting process
                 if session_id:
+                    print(f"[INPUT DEBUG] Forwarding input to terminal service for session {session_id}")
                     logger.info(f"Forwarding input to session {session_id}: {input_msg.input}")
                     await terminal_service.handle_input_response(session_id, input_msg.input)
+                    print(f"[INPUT DEBUG] Input forwarding completed for session {session_id}")
                 else:
+                    print(f"[INPUT DEBUG] ERROR: No session_id found for connection {connection_id}")
                     logger.warning(f"No session_id found for connection {connection_id}, cannot send input")
                 
             elif message.type == MessageType.INTERRUPT:
@@ -708,6 +690,61 @@ class WebSocketManager:
     def get_connection_info(self, connection_id: str) -> Optional[Dict[str, Any]]:
         """Get connection information."""
         return self.connection_metadata.get(connection_id)
+    
+    async def _execute_command_async(self, connection_id: str, session_id: str, command_msg: CommandMessage):
+        """Execute command asynchronously without blocking the WebSocket message loop."""
+        try:
+            print(f"[ASYNC COMMAND] Starting execution of {command_msg.command}")
+            
+            # Execute command using terminal service  
+            result = await terminal_service.execute_command(
+                session_id=session_id,
+                command=command_msg.command,
+                timeout=30,
+                working_directory=command_msg.working_directory,
+                connection_id=connection_id  # Pass the connection ID
+            )
+            
+            print(f"[ASYNC COMMAND] Command completed: {command_msg.command}")
+            
+            # Always send a completion signal
+            response = CommandResponseMessage(
+                type=MessageType.COMMAND_RESPONSE,
+                command=command_msg.command,
+                stdout=result["stdout"],
+                stderr=result["stderr"],
+                return_code=result["return_code"],
+                execution_time=result.get("execution_time", 0.0),
+                working_directory=result.get("working_directory")
+            )
+            
+            logger.info(
+                "Sending command completion",
+                connection_id=connection_id,
+                session_id=session_id,
+                command=command_msg.command,
+                return_code=result["return_code"],
+                working_directory=result.get("working_directory")
+            )
+            
+            await self.send_message(connection_id, response)
+            print(f"[ASYNC COMMAND] Completion message sent for {command_msg.command}")
+            
+        except Exception as e:
+            print(f"[ASYNC COMMAND] Error executing command {command_msg.command}: {e}")
+            logger.error("Error in async command execution", error=str(e), connection_id=connection_id)
+            
+            # Send error response
+            error_response = CommandResponseMessage(
+                type=MessageType.COMMAND_RESPONSE,
+                command=command_msg.command,
+                stdout="",
+                stderr=f"Command execution error: {str(e)}\n",
+                return_code=1,
+                execution_time=0.0,
+                working_directory=command_msg.working_directory
+            )
+            await self.send_message(connection_id, error_response)
 
 
 # Global WebSocket manager instance

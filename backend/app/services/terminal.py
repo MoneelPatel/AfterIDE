@@ -164,6 +164,12 @@ class TerminalService:
                     # Clean up the process reference
                     del self.active_processes[session_id]
                     
+                    # Also clean up the waiting process from session
+                    session = self.get_session(session_id)
+                    if session:
+                        session["waiting_process"] = None
+                        print(f"[INPUT DEBUG] Cleared waiting_process from session {session_id} due to interrupt")
+                    
                     logger.info(
                         "Process interrupted successfully",
                         session_id=session_id
@@ -905,38 +911,50 @@ class TerminalService:
                             
                     except asyncio.TimeoutError:
                         # Timeout while reading - check for input prompts
+                        print(f"[STDOUT DEBUG] Timeout reading stdout, current_line: {repr(current_line)}, process running: {process.returncode is None}")
+                        
                         # Only detect as input prompt if we have content and no newline arrives after a delay
                         if process.returncode is None and current_line and not current_line.endswith('\n') and not input_request_sent:
                             # This looks like an input prompt - send it immediately
+                            print(f"[STDOUT DEBUG] Detected input prompt, sending: {repr(current_line)}")
                             logger.info(f"[STREAMING DEBUG] Detected input prompt, sending: {repr(current_line)}")
                             
                             # Store the process reference so input can be sent to it
                             session = self.get_session(session_id)
                             if session:
                                 session["waiting_process"] = process
+                                print(f"[STDOUT DEBUG] Stored waiting process for session {session_id}")
                                 logger.info(f"[DEBUG] Stored waiting process for session {session_id}")
                                 logger.info(f"[DEBUG] Session after storing waiting process: {session}")
                             else:
+                                print(f"[STDOUT DEBUG] ERROR: No session found when trying to store waiting process for {session_id}")
                                 logger.error(f"[DEBUG] No session found when trying to store waiting process for {session_id}")
                             
                             # Send input request message to frontend
                             if self.websocket_manager:
+                                print(f"[STDOUT DEBUG] Creating input request message")
                                 input_request = InputRequestMessage(
                                     type=MessageType.INPUT_REQUEST,
                                     prompt=current_line,
                                     session_id=session_id
                                 )
+                                print(f"[STDOUT DEBUG] Input request message created: {input_request}")
+                                
                                 # Only send to the connection that initiated the command, not broadcast
                                 # Get the connection ID that initiated this command
                                 session = self.get_session(session_id)
                                 if session and "command_connection_id" in session:
                                     connection_id = session["command_connection_id"]
+                                    print(f"[STDOUT DEBUG] Sending input request to specific connection {connection_id}")
                                     await self.websocket_manager.send_message(connection_id, input_request)
                                     logger.info(f"[DEBUG] Sent input request to specific connection {connection_id}")
                                 else:
                                     # Fallback to broadcast if no specific connection found
+                                    print(f"[STDOUT DEBUG] Fallback: broadcasting input request to session {session_id}")
                                     await self.websocket_manager.broadcast_to_session(session_id, input_request)
                                     logger.info(f"[DEBUG] Fallback: broadcasted input request to session {session_id}")
+                            else:
+                                print(f"[STDOUT DEBUG] ERROR: No websocket manager available")
                             
                             current_line = ""  # Clear after sending
                             input_request_sent = True  # Mark as sent to prevent duplicates
@@ -990,34 +1008,10 @@ class TerminalService:
             stdout_task = asyncio.create_task(read_stdout())
             stderr_task = asyncio.create_task(read_stderr())
             
-            try:
-                # Wait for process to complete or timeout
-                # But don't timeout if the process is waiting for input
-                session = self.get_session(session_id)
-                logger.info(f"[DEBUG] Before process.wait() - session_id: {session_id}, session exists: {session is not None}")
-                if session:
-                    logger.info(f"[DEBUG] Session data: {session}")
-                    waiting_process = session.get("waiting_process")
-                    logger.info(f"[DEBUG] Waiting process: {waiting_process is not None}")
-                    if waiting_process:
-                        # Process is waiting for input, don't timeout
-                        logger.info(f"[DEBUG] Process is waiting for input, not applying timeout for session {session_id}")
-                        await process.wait()
-                    else:
-                        # Process is not waiting for input, apply normal timeout
-                        logger.info(f"[DEBUG] Process is not waiting for input, applying timeout {timeout}s for session {session_id}")
-                        await asyncio.wait_for(process.wait(), timeout=timeout)
-                else:
-                    logger.warning(f"[DEBUG] No session found for {session_id}, applying timeout {timeout}s")
-                    await asyncio.wait_for(process.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                logger.warning(f"Process timed out after {timeout} seconds, terminating")
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
+            # Wait for process to complete - no timeout for interactive processes
+            logger.info(f"[DEBUG] Interactive Python process - waiting for completion, session {session_id}")
+            await process.wait()
+            logger.info(f"[DEBUG] Process completed with return code {process.returncode}, session {session_id}")
             
             # Cancel reading tasks
             if stdout_task:
@@ -2851,40 +2845,66 @@ class TerminalService:
     async def handle_input_response(self, session_id: str, user_input: str):
         """Handle input response from frontend and send to waiting process."""
         try:
+            print(f"[INPUT DEBUG] handle_input_response called with session_id={session_id}, user_input={repr(user_input)}")
             logger.info(f"[DEBUG] handle_input_response called with session_id={session_id}, user_input={repr(user_input)}")
+            
             session = self.get_session(session_id)
+            print(f"[INPUT DEBUG] Session found: {session is not None}")
             logger.info(f"[DEBUG] Session found: {session is not None}")
+            
             if not session:
+                print(f"[INPUT DEBUG] CRITICAL ERROR: No session found for session_id={session_id}")
                 logger.warning("No session found for input response", session_id=session_id)
+                print(f"[INPUT DEBUG] Available sessions: {list(self.sessions.keys())}")
                 return
             
+            print(f"[INPUT DEBUG] Session data keys: {list(session.keys())}")
             logger.info(f"[DEBUG] Session data: {session}")
             
             # Get the waiting process from session
             waiting_process = session.get("waiting_process")
+            print(f"[INPUT DEBUG] Waiting process found: {waiting_process is not None}")
+            print(f"[INPUT DEBUG] Waiting process type: {type(waiting_process)}")
             logger.info(f"[DEBUG] Waiting process found: {waiting_process is not None}")
+            
             if not waiting_process:
+                print(f"[INPUT DEBUG] CRITICAL ERROR: No waiting process found for session {session_id}")
                 logger.warning("No waiting process found for input response", session_id=session_id)
                 logger.warning(f"[DEBUG] Session keys: {list(session.keys())}")
+                print(f"[INPUT DEBUG] Session keys: {list(session.keys())}")
                 return
             
             # Send input to the process
             try:
+                print(f"[INPUT DEBUG] About to send input to process: {repr(user_input)}")
                 logger.info(f"[DEBUG] Sending input to process: {repr(user_input)}")
+                
+                # Check if process is still alive
+                if waiting_process.returncode is not None:
+                    print(f"[INPUT DEBUG] CRITICAL ERROR: Process has already terminated with return code {waiting_process.returncode}")
+                    logger.error(f"Process has already terminated with return code {waiting_process.returncode}")
+                    return
+                
+                print(f"[INPUT DEBUG] Process is alive, sending input...")
                 waiting_process.stdin.write(f"{user_input}\n".encode('utf-8'))
                 await waiting_process.stdin.drain()
+                print(f"[INPUT DEBUG] Input sent and drained successfully")
                 
                 # Signal that input was received (for stdout reader to reset state)
                 session["input_received"] = True
+                print(f"[INPUT DEBUG] Set input_received flag to True")
                 
                 # Clear any pending input requests for this session
                 to_remove = [key for key in self.pending_input_requests if key.startswith(f"{session_id}:")]
                 for key in to_remove:
                     self.pending_input_requests.remove(key)
+                print(f"[INPUT DEBUG] Cleared {len(to_remove)} pending input requests")
                 
+                print(f"[INPUT DEBUG] Input handling completed successfully for session {session_id}")
                 logger.info(f"[DEBUG] Input successfully sent to waiting process: session_id={session_id}, input={repr(user_input)}, input_length={len(user_input)}")
                 
             except Exception as e:
+                print(f"[INPUT DEBUG] CRITICAL ERROR sending input to process: {e}")
                 logger.error("Error sending input to process", session_id=session_id, error=str(e))
                 
         except Exception as e:

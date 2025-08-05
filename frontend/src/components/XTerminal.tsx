@@ -16,18 +16,21 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   
-  // Use refs for frequently changing values to avoid re-renders
+  // Simplified state management - only track what we actually need
   const currentLineRef = useRef('')
   const commandHistoryRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
-  const isProcessingRef = useRef(false)
   const workingDirectoryRef = useRef('/')
   const terminalConnectedRef = useRef(false)
   const cursorPositionRef = useRef(0) // Track cursor position for tab completion
   const completionSuggestionsRef = useRef<string[]>([])
   const completionIndexRef = useRef(-1)
-  const waitingForInputRef = useRef(false) // Track if we're waiting for user input
-  const inputPromptRef = useRef('') // Store the input prompt
+  
+  // Single state to track terminal mode
+  const terminalModeRef = useRef<'ready' | 'command' | 'input'>('ready')
+  // ready: Terminal is ready for new commands
+  // command: Terminal is executing a command
+  // input: Terminal is waiting for user input
   
   const [isInitialized, setIsInitialized] = useState(false)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
@@ -233,7 +236,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
   }, [terminalConnected])
 
   const prompt = useCallback(() => {
-    if (xtermRef.current && !isProcessingRef.current) {
+    if (xtermRef.current && terminalModeRef.current === 'ready') {
       xtermRef.current.write('\r\n$ ')
     }
   }, [])
@@ -280,8 +283,8 @@ const XTerminal: React.FC<XTerminalProps> = () => {
 
     // Send command to backend if connected
     if (terminalConnectedRef.current) {
-      isProcessingRef.current = true
-      console.log('XTerminal: Setting isProcessing to true, sending command to backend')
+      terminalModeRef.current = 'command'
+      console.log('XTerminal: Setting terminal to command mode, sending command to backend')
       sendTerminalMessage({
         type: 'command',
         command: command.trim(),
@@ -372,9 +375,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         const isStreaming = message.return_code === -1
         
         if (!isStreaming) {
-          // Final command completion - stop processing
+          // Final command completion - stop processing and reset input state
           console.log('XTerminal: Command completed, setting isProcessing to false')
-          isProcessingRef.current = false
+          terminalModeRef.current = 'ready'
           
           // Update working directory if provided (for cd commands)
           if (message.working_directory) {
@@ -418,8 +421,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       } else if (message.type === 'input_request') {
         // Handle input request from backend (e.g., Python input() function)
         console.log('XTerminal: Input request received:', message.prompt)
-        waitingForInputRef.current = true
-        inputPromptRef.current = message.prompt || ''
+        terminalModeRef.current = 'input'
         
         // Display the input prompt
         if (message.prompt) {
@@ -427,13 +429,10 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         }
         
         // Don't show the regular prompt - we're waiting for input
-        isProcessingRef.current = true
       } else if (message.type === 'input_response') {
         // Handle input response confirmation
         console.log('XTerminal: Input response confirmed')
-        waitingForInputRef.current = false
-        inputPromptRef.current = ''
-        isProcessingRef.current = false
+        terminalModeRef.current = 'ready'
         prompt()
       }
     }
@@ -441,7 +440,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
     const handleError = (message: any) => {
       console.log('XTerminal: Received error:', message)
       if (message.type === 'error') {
-        isProcessingRef.current = false
+        terminalModeRef.current = 'ready'
         writeOutput(`\r\nError: ${message.message}`, 'red')
         prompt()
       }
@@ -578,7 +577,7 @@ const XTerminal: React.FC<XTerminalProps> = () => {
       terminal.onData((data) => {
         inputCounter++
         const code = data.charCodeAt(0)
-        console.log(`XTerminal: onData called #${inputCounter} - code:`, code, 'data:', JSON.stringify(data), 'isProcessing:', isProcessingRef.current, 'waitingForInput:', waitingForInputRef.current)
+        console.log(`XTerminal: onData called #${inputCounter} - code:`, code, 'data:', JSON.stringify(data), 'terminalMode:', terminalModeRef.current)
 
         if (code === 3) { // Ctrl+C
           // Send interrupt signal to backend
@@ -593,28 +592,19 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           currentLineRef.current = ''
           cursorPositionRef.current = 0
           
-          // If we're processing a command, stop processing
-          if (isProcessingRef.current) {
-            isProcessingRef.current = false
+          // If we're in command or input mode, stop processing
+          if (terminalModeRef.current !== 'ready') {
+            terminalModeRef.current = 'ready'
             prompt()
           }
           return
         }
 
-        // Allow input if we're waiting for user input, even if processing
-        // Also allow input during Python execution since Python might call input()
-        if (isProcessingRef.current && !waitingForInputRef.current) {
-          // Check if this might be Python input - allow Enter key for Python processes
-          if (code === 13) { // Enter key
-            console.log('XTerminal: Allowing Enter key during Python execution for potential input()')
-            // Don't return - allow the Enter key to be processed
-          } else if (code >= 32) { // Printable characters
-            console.log('XTerminal: Allowing character input during Python execution:', String.fromCharCode(code))
-            // Don't return - allow character input
-          } else {
-            console.log('XTerminal: Input blocked - processing command and not waiting for input')
-            return
-          }
+        // Only allow input when terminal is ready or waiting for input
+        if (terminalModeRef.current === 'command') {
+          // Block all input during command execution (except Ctrl+C which is handled above)
+          console.log('XTerminal: Ignoring input during command execution')
+          return
         }
 
         if (code === 13) { // Enter
@@ -622,21 +612,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
           currentLineRef.current = ''
           cursorPositionRef.current = 0
           
-          if (waitingForInputRef.current) {
+          if (terminalModeRef.current === 'input') {
             // We're waiting for input - send it to the backend
             console.log('XTerminal: Sending input to backend:', command)
-            sendTerminalMessage({
-              type: 'input_response',
-              input: command
-            })
-            terminal.write('\r\n')
-            return
-          }
-          
-          // If we're processing and not explicitly waiting for input, 
-          // this might still be Python input() - send as input_response
-          if (isProcessingRef.current) {
-            console.log('XTerminal: Sending potential Python input to backend:', command)
             sendTerminalMessage({
               type: 'input_response',
               input: command
@@ -725,11 +703,11 @@ const XTerminal: React.FC<XTerminalProps> = () => {
         if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
           console.log('XTerminal: Ctrl+C or Cmd+C detected at document level')
           
-          // Only handle if terminal is focused AND we're actually processing a command
+          // Only handle if terminal is focused AND we're processing a command OR waiting for input
           const isTerminalFocused = document.activeElement === terminalRef.current || terminalRef.current?.contains(document.activeElement)
           
-          if (isTerminalFocused && isProcessingRef.current) {
-            console.log('XTerminal: Terminal is focused and processing command, handling interrupt')
+          if (isTerminalFocused && terminalModeRef.current !== 'ready') {
+            console.log('XTerminal: Terminal is focused and processing/waiting for input, handling interrupt')
             event.preventDefault()
             event.stopPropagation()
             
@@ -747,9 +725,9 @@ const XTerminal: React.FC<XTerminalProps> = () => {
             currentLineRef.current = ''
             cursorPositionRef.current = 0
             
-            // Stop processing
-            console.log('XTerminal: Stopping command processing')
-            isProcessingRef.current = false
+            // Stop processing and reset to ready state
+            console.log('XTerminal: Stopping command processing and resetting to ready state')
+            terminalModeRef.current = 'ready'
             prompt()
           } else if (isTerminalFocused) {
             console.log('XTerminal: Terminal focused but not processing command, ignoring Ctrl+C')
