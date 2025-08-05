@@ -7,16 +7,19 @@
   html {
     font-family: 'Inter', system-ui, sans-serif;
     height: 100%;
+    background-color: rgb(249 250 251); /* gray-50 */
   }
   
   body {
     height: 100%;
     margin: 0;
     padding: 0;
+    background-color: rgb(249 250 251); /* gray-50 */
   }
   
   #root {
     height: 100%;
+    background-color: rgb(249 250 251); /* gray-50 */
   }
   
   /* Monaco Editor customizations */
@@ -159,6 +162,19 @@
   /* Connection status dark mode improvements */
   .dark .connection-status {
     background-color: rgb(31 41 55); /* gray-800 */
+  }
+
+  /* Dark mode background colors */
+  .dark html {
+    background-color: rgb(17 24 39); /* gray-900 */
+  }
+  
+  .dark body {
+    background-color: rgb(17 24 39); /* gray-900 */
+  }
+  
+  .dark #root {
+    background-color: rgb(17 24 39); /* gray-900 */
   }
 }
 

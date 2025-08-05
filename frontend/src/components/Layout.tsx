@@ -79,7 +79,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
         </div>
       </div>
-      <main className="flex-1 min-h-0">
+      <main className="flex-1 min-h-0 bg-gray-50 dark:bg-gray-900">
         {children}
       </main>
     </div>

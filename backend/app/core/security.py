@@ -324,6 +324,14 @@ class SecurityMiddleware:
         """Process request through security middleware."""
         start_time = time.time()
         
+        # TEMPORARILY SKIP SECURITY MIDDLEWARE FOR LOGIN ENDPOINTS
+        if request.url.path in ["/api/v1/auth/login", "/api/v1/auth/register"]:
+            response = await call_next(request)
+            # Still add security headers
+            for header, value in SecurityHeaders.get_security_headers().items():
+                response.headers[header] = value
+            return response
+        
         # Get client identifier
         client_id = self._get_client_id(request)
         

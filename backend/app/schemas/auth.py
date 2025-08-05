@@ -57,4 +57,5 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     expires_in: int
+    session_id: Optional[str] = None
     user: Optional[UserResponse] = None 

@@ -4,7 +4,7 @@ AfterIDE - Authentication API Endpoints
 REST API endpoints for user authentication and authorization.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 
@@ -18,12 +18,17 @@ router = APIRouter()
 security = HTTPBearer()
 
 @router.post("/login", response_model=TokenResponse)
-async def login(user_credentials: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(
+    user_credentials: UserLogin, 
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
     """
     Authenticate user and return access token.
     
     Args:
         user_credentials: User login credentials
+        request: FastAPI request object for IP detection
         db: Database session
         
     Returns:
@@ -32,16 +37,43 @@ async def login(user_credentials: UserLogin, db: AsyncSession = Depends(get_db))
     Raises:
         HTTPException: If authentication fails
     """
-    token_response = await AuthService.login_user(db, user_credentials)
-    
-    if not token_response:
+    try:
+        # Get client IP address
+        ip_address = None
+        if request:
+            # Try to get from X-Forwarded-For header (behind proxy)
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            if forwarded_for:
+                ip_address = forwarded_for.split(",")[0].strip()
+            else:
+                # Fallback to client host
+                ip_address = request.client.host if request.client else "unknown"
+        
+        token_response = await AuthService.login_user(db, user_credentials, ip_address)
+        
+        if not token_response:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        return token_response
+        
+    except ValueError as e:
+        # Handle security-related errors (account lockout, etc.)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    return token_response
+    except Exception as e:
+        # Handle other errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login failed. Please try again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 @router.post("/register", response_model=UserResponse)
 async def register_user(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
