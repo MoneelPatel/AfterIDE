@@ -40,11 +40,11 @@ def main():
     if not run_command("pip install --upgrade pip", "Upgrading pip"):
         return False
     
-    # Install requirements - try railway requirements first, fallback to regular
-    requirements_file = "requirements-railway.txt"
+    # Install requirements
+    requirements_file = "requirements.txt"
     if not os.path.exists(requirements_file):
-        requirements_file = "requirements.txt"
-        print(f"⚠️  {requirements_file} not found, using requirements.txt")
+        print(f"❌ {requirements_file} not found")
+        return False
     
     if not run_command(f"pip install -r {requirements_file}", f"Installing requirements from {requirements_file}"):
         return False

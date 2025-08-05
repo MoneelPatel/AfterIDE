@@ -26,7 +26,7 @@ class TestTerminalDuplicateIssues:
             def __init__(self):
                 self.files = {
                     "/test.py": "print('hi')",
-                    "/input.py": "name = input('What is your name? ')\\nprint('Hello ' + name)"
+                    "/input.py": "name = input('What is your name? ')\nprint('Hello ' + name)"
                 }
                 
             async def get_file_content(self, session_id, filepath):
@@ -204,7 +204,7 @@ class TestTerminalDuplicateIssues:
         await service.handle_input_response("test-session", "Moneel")
         
         # Verify input was sent to process
-        mock_process.stdin.write.assert_called_once_with(b"Moneel\\n")
+        mock_process.stdin.write.assert_called_once_with(b"Moneel\n")
         mock_process.stdin.drain.assert_called_once()
         
         # Verify session state was updated
@@ -213,4 +213,4 @@ class TestTerminalDuplicateIssues:
 
 if __name__ == "__main__":
     # Run the specific tests
-    pytest.main([__file__, "-v", "-s"])
+    pytest.main([__file__, "-v", "-s"]) 

@@ -26,7 +26,6 @@ RUN mkdir -p /tmp/afteride
 
 # Make scripts executable
 RUN chmod +x healthcheck.py
-RUN chmod +x simple_healthcheck.py
 RUN chmod +x start.sh
 RUN chmod +x main.py
 
@@ -36,9 +35,9 @@ ENV PYTHONPATH=/app
 # Expose port
 EXPOSE 8000
 
-# Health check - use simple port check
+# Health check - use the comprehensive healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=5 \
-    CMD python simple_healthcheck.py
+    CMD python healthcheck.py
 
 # Run the application using the main.py entry point
 CMD ["python", "main.py"] 

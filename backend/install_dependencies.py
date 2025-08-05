@@ -47,8 +47,8 @@ def main():
     print(f"👤 User: {os.getenv('USER', 'unknown')}")
     
     # Check if we're in the right directory
-    if not Path("requirements-railway.txt").exists():
-        print("❌ requirements-railway.txt not found!")
+    if not Path("requirements.txt").exists():
+        print("❌ requirements.txt not found!")
         print("📁 Files in current directory:")
         for file in os.listdir("."):
             print(f"  - {file}")
@@ -60,7 +60,7 @@ def main():
     
     # Install requirements with verbose output
     print("\n📦 Installing requirements...")
-    if not run_command("pip install -r requirements-railway.txt --verbose", "Installing requirements"):
+    if not run_command("pip install -r requirements.txt --verbose", "Installing requirements"):
         print("❌ Failed to install requirements")
         return False
     
@@ -98,35 +98,34 @@ def main():
         missing_packages = [
             "fastapi==0.104.1",
             "uvicorn[standard]==0.24.0",
+            "websockets==12.0",
             "sqlalchemy==2.0.23",
-            "pydantic==2.5.0",
-            "redis==5.0.1",
+            "alembic==1.12.1",
             "psycopg2-binary==2.9.9",
             "asyncpg==0.29.0",
             "aiosqlite==0.19.0",
-            "structlog==23.2.0",
+            "redis==5.0.1",
+            "aioredis==2.0.1",
             "python-multipart==0.0.6",
             "python-jose[cryptography]==3.3.0",
             "passlib[bcrypt]==1.7.4",
             "python-dotenv==1.0.0",
             "email-validator==2.1.0",
+            "pydantic==2.5.0",
+            "structlog==23.2.0",
             "docker==6.1.3",
             "psutil==5.9.6",
-            "httpx==0.25.2",
+            "httpx==0.25.2"
         ]
         
         for package in missing_packages:
             if not run_command(f"pip install {package}", f"Installing {package}"):
                 print(f"❌ Failed to install {package}")
                 return False
+        
+        print("✅ Alternative installation completed")
     
-    # Final verification
-    print("\n🔍 Final verification...")
-    if not verify_package("sqlalchemy", "sqlalchemy"):
-        print("❌ SQLAlchemy still not available after installation")
-        return False
-    
-    print("\n✅ All dependencies installed successfully!")
+    print("\n🎉 All dependencies installed successfully!")
     return True
 
 if __name__ == "__main__":
