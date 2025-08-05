@@ -15,6 +15,7 @@ import httpx
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.database import init_db
+from app.core.security import security_middleware, security_config
 from app.api.v1.api import api_router
 from app.websocket.router import websocket_router, websocket_manager
 from app.services.workspace import WorkspaceService
@@ -40,6 +41,9 @@ def create_application() -> FastAPI:
         redoc_url="/redoc",  # Always enable redoc
         openapi_url="/openapi.json",  # Always enable OpenAPI JSON
     )
+    
+    # Add security middleware first (before CORS)
+    app.middleware("http")(security_middleware)
     
     # Add CORS middleware
     app.add_middleware(

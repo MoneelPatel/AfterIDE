@@ -18,11 +18,128 @@ import json
 from pathlib import Path
 from sqlalchemy import select, and_
 from app.models.file import File
+import resource
+import psutil
+import threading
+from contextlib import asynccontextmanager
 
 # WebSocket imports for file system notifications
 from app.schemas.websocket import FolderCreatedMessage, MessageType, FileUpdatedMessage, FileDeletedMessage, InputRequestMessage, CommandResponseMessage
 
+# Security imports
+from app.core.security import input_validator, security_config
+
 logger = structlog.get_logger(__name__)
+
+
+class ResourceLimits:
+    """Resource limits for command execution."""
+    
+    def __init__(self):
+        self.max_cpu_time = 30  # seconds
+        self.max_memory_mb = 512
+        self.max_processes = 10
+        self.max_file_size_mb = 10
+        self.max_open_files = 100
+    
+    def set_process_limits(self):
+        """Set resource limits for the current process."""
+        try:
+            # Set CPU time limit
+            resource.setrlimit(resource.RLIMIT_CPU, (self.max_cpu_time, self.max_cpu_time))
+            
+            # Set memory limit (soft limit)
+            memory_limit = self.max_memory_mb * 1024 * 1024  # Convert to bytes
+            resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+            
+            # Set number of processes limit
+            resource.setrlimit(resource.RLIMIT_NPROC, (self.max_processes, self.max_processes))
+            
+            # Set file size limit
+            file_size_limit = self.max_file_size_mb * 1024 * 1024  # Convert to bytes
+            resource.setrlimit(resource.RLIMIT_FSIZE, (file_size_limit, file_size_limit))
+            
+            # Set number of open files limit
+            resource.setrlimit(resource.RLIMIT_NOFILE, (self.max_open_files, self.max_open_files))
+            
+        except Exception as e:
+            logger.warning("Failed to set resource limits", error=str(e))
+
+
+class CommandSandbox:
+    """Sandbox environment for command execution."""
+    
+    def __init__(self, session_id: str, workspace_path: str):
+        self.session_id = session_id
+        self.workspace_path = workspace_path
+        self.temp_dir = None
+        self.resource_limits = ResourceLimits()
+    
+    @asynccontextmanager
+    async def create_sandbox(self):
+        """Create a sandboxed environment for command execution."""
+        try:
+            # Create temporary directory for this execution
+            self.temp_dir = tempfile.mkdtemp(prefix=f"afteride_sandbox_{self.session_id}_")
+            
+            # Copy workspace files to sandbox
+            await self._copy_workspace_to_sandbox()
+            
+            # Set up sandbox environment
+            env = self._create_sandbox_environment()
+            
+            yield self.temp_dir, env
+            
+        finally:
+            # Cleanup sandbox
+            await self._cleanup_sandbox()
+    
+    async def _copy_workspace_to_sandbox(self):
+        """Copy workspace files to sandbox directory."""
+        try:
+            # This would be implemented to copy files from workspace to sandbox
+            # For now, we'll create a symbolic link or copy mechanism
+            pass
+        except Exception as e:
+            logger.error("Failed to copy workspace to sandbox", error=str(e))
+    
+    def _create_sandbox_environment(self) -> Dict[str, str]:
+        """Create sandboxed environment variables."""
+        env = os.environ.copy()
+        
+        # Restrict environment variables
+        allowed_vars = [
+            'PATH', 'HOME', 'USER', 'SHELL', 'TERM', 'LANG', 'LC_ALL',
+            'PWD', 'OLDPWD', 'HOSTNAME', 'HOSTTYPE', 'MACHTYPE'
+        ]
+        
+        # Filter environment variables
+        filtered_env = {}
+        for var in allowed_vars:
+            if var in env:
+                filtered_env[var] = env[var]
+        
+        # Set sandbox-specific variables
+        filtered_env.update({
+            'HOME': self.temp_dir,
+            'PWD': self.temp_dir,
+            'PATH': '/usr/local/bin:/usr/bin:/bin',
+            'SHELL': '/bin/bash',
+            'TERM': 'xterm-256color',
+            'AFTERIDE_SANDBOX': '1',
+            'AFTERIDE_SESSION_ID': self.session_id
+        })
+        
+        return filtered_env
+    
+    async def _cleanup_sandbox(self):
+        """Clean up sandbox directory."""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            try:
+                import shutil
+                shutil.rmtree(self.temp_dir)
+            except Exception as e:
+                logger.error("Failed to cleanup sandbox", error=str(e))
 
 
 class TerminalService:
@@ -36,6 +153,7 @@ class TerminalService:
         self.workspace_service = None  # Will be set by dependency injection
         self.websocket_manager = None  # Will be set by dependency injection
         self.pending_input_requests = set()  # Track pending input requests to prevent duplicates
+        self.execution_stats: Dict[str, Dict[str, Any]] = {}  # Track execution statistics
         
     def set_workspace_service(self, workspace_service):
         """Set the workspace service for database operations."""
@@ -61,7 +179,13 @@ class TerminalService:
             "last_activity": datetime.utcnow(),
             "command_count": 0,
             "is_active": True,
-            "command_history": [] # Initialize command history
+            "command_history": [], # Initialize command history
+            "security_violations": 0,  # Track security violations
+            "resource_usage": {
+                "total_cpu_time": 0,
+                "total_memory_mb": 0,
+                "total_commands": 0
+            }
         }
         
         self.sessions[session_id] = session
@@ -104,107 +228,65 @@ class TerminalService:
                 return False
                 
         except Exception as e:
-            logger.error(f"Failed to send input to session {session_id}: {e}")
+            logger.error(f"Failed to send input to process in session {session_id}", error=str(e))
             return False
 
     async def interrupt_session(self, session_id: str) -> Dict[str, Any]:
-        """Interrupt any running process in the given session."""
+        """Interrupt a running process in a session."""
         try:
-            logger.info(f"interrupt_session called for session_id: {session_id}")
-            logger.info(f"Active processes: {list(self.active_processes.keys())}")
-            
             if session_id in self.active_processes:
                 process = self.active_processes[session_id]
                 
-                if process and process.returncode is None:  # Process is still running
-                    logger.info(
-                        "Interrupting process in session",
-                        session_id=session_id,
-                        process_id=process.pid
-                    )
+                if process and process.returncode is None:
+                    # Send SIGINT to the process
+                    process.send_signal(signal.SIGINT)
                     
-                    # Send SIGINT to the process group (Ctrl+C equivalent)
+                    # Wait a bit for graceful termination
                     try:
-                        os.killpg(process.pid, signal.SIGINT)
-                        logger.info(f"Sent SIGINT to process group {process.pid}")
-                    except ProcessLookupError:
-                        # Fallback to sending to process directly if process group doesn't exist
-                        process.send_signal(signal.SIGINT)
-                        logger.info(f"Sent SIGINT to process {process.pid}")
-                    except Exception as e:
-                        logger.warning(f"Failed to send SIGINT: {e}")
-                        # If SIGINT fails, try SIGTERM
-                        try:
-                            process.terminate()
-                            logger.info(f"Sent SIGTERM to process {process.pid}")
-                        except:
-                            pass
-                    
-                    # Wait briefly for graceful termination
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=1.0)  # Reduced timeout
-                        logger.info(f"Process {process.pid} terminated gracefully")
+                        await asyncio.wait_for(process.wait(), timeout=5.0)
                     except asyncio.TimeoutError:
                         # Force kill if it doesn't terminate gracefully
-                        logger.warning(
-                            "Process didn't terminate gracefully, force killing",
-                            session_id=session_id,
-                            process_id=process.pid
-                        )
-                        try:
-                            # Try SIGKILL to process group first
-                            os.killpg(process.pid, signal.SIGKILL)
-                            logger.info(f"Sent SIGKILL to process group {process.pid}")
-                        except:
-                            # Fallback to killing the process directly
-                            process.kill()
-                            logger.info(f"Sent SIGKILL to process {process.pid}")
+                        process.kill()
                         await process.wait()
                     
-                    # Clean up the process reference
-                    del self.active_processes[session_id]
+                    logger.info(f"Process interrupted in session {session_id}")
                     
-                    # Also clean up the waiting process from session
-                    session = self.get_session(session_id)
-                    if session:
-                        session["waiting_process"] = None
-                        print(f"[INPUT DEBUG] Cleared waiting_process from session {session_id} due to interrupt")
-                    
-                    logger.info(
-                        "Process interrupted successfully",
-                        session_id=session_id
-                    )
-                    
-                    return {"success": True, "message": "Process interrupted"}
+                    return {
+                        "success": True,
+                        "message": "Process interrupted successfully"
+                    }
                 else:
-                    return {"success": True, "message": "No active process to interrupt"}
+                    return {
+                        "success": False,
+                        "message": "No active process to interrupt"
+                    }
             else:
-                return {"success": True, "message": "No active process to interrupt"}
+                return {
+                    "success": False,
+                    "message": "No active process found"
+                }
                 
         except Exception as e:
-            logger.error(
-                "Failed to interrupt process",
-                session_id=session_id,
-                error=str(e)
-            )
-            return {"success": False, "error": str(e)}
-    
+            logger.error(f"Failed to interrupt process in session {session_id}", error=str(e))
+            return {
+                "success": False,
+                "message": f"Failed to interrupt process: {str(e)}"
+            }
+
     def validate_command(self, command: str) -> Tuple[bool, str]:
         """
-        Validate command for security.
+        Enhanced command validation with security checks.
         
         Returns:
             Tuple of (is_valid, error_message)
         """
-        # Check for empty command
-        if not command.strip():
-            return False, "Invalid command format"
+        # Use the security module's input validator
+        is_valid, sanitized, error = input_validator.validate_and_sanitize_input(command, "command")
         
-        # Check for whitespace-only command (this is redundant with the above, but let's be explicit)
-        if command.strip() == "":
-            return False, "Invalid command format"
+        if not is_valid:
+            return False, error
         
-        # Split command into parts
+        # Additional security checks
         try:
             parts = shlex.split(command)
             if not parts:
@@ -242,62 +324,25 @@ class TerminalService:
             elif base_command == "uniq" and len(parts) < 2:
                 return False, "uniq: missing file operand"
             
-            # Security: Dangerous commands to block
-            blocked_commands = {
-                'sudo', 'su', 'rm -rf /', 'dd', 'mkfs', 'fdisk',
-                'shutdown', 'reboot', 'halt', 'poweroff',
-                'chmod 777', 'chown root', 'passwd'
-            }
+            # Enhanced security: Check for command injection attempts
+            dangerous_chars = [';', '|', '&', '`', '$', '(', ')', '{', '}', '[', ']']
+            for char in dangerous_chars:
+                if char in command:
+                    return False, f"Command injection attempt detected: '{char}' not allowed"
             
-            # Security: Blocked patterns
-            blocked_patterns = [
-                r'sudo\s+',
-                r'su\s+',
-                r'rm\s+-rf\s+/',
-                r'dd\s+if=',
-                r'mkfs\s+',
-                r'fdisk\s+',
-                r'shutdown\s+',
-                r'reboot\s+',
-                r'halt\s+',
-                r'poweroff\s+',
-                r'chmod\s+777',
-                r'chown\s+root',
-                r'passwd\s+'
-            ]
-            
-            # Check blocked commands
-            if base_command in blocked_commands:
-                return False, f"Command '{base_command}' is not allowed"
-            
-            # Check blocked patterns
-            import re
-            for pattern in blocked_patterns:
-                if re.search(pattern, command, re.IGNORECASE):
-                    return False, f"Command pattern is not allowed"
-            
-            # Additional security checks for specific dangerous commands
-            if base_command.startswith('mkfs') or base_command.startswith('fdisk') or base_command.startswith('dd'):
-                return False, f"Command '{base_command}' is not allowed"
-            
-            # Security: Block path traversal attempts
-            for part in parts[1:]:
-                if ".." in part or part.startswith("../"):
-                    # Allow 'cd ..' command specifically
-                    if base_command == "cd" and part == "..":
-                        continue
-                    return False, f"Path traversal is not allowed"
-            
-            # Security: Block file system access outside workspace
-            if base_command.startswith('./') or base_command.startswith('/'):
-                if not base_command.startswith('/workspace') and base_command != '/':
-                    return False, f"Access to files outside workspace is not allowed"
+            # Check for redirection to system files
+            if '>' in command or '>>' in command:
+                parts = command.split('>')
+                if len(parts) > 1:
+                    target = parts[1].strip().split()[0] if parts[1].strip() else ""
+                    if any(system_path in target for system_path in ['/etc/', '/var/', '/usr/', '/bin/', '/sbin/']):
+                        return False, "Redirection to system files not allowed"
             
             return True, ""
             
         except Exception as e:
             return False, f"Command parsing error: {str(e)}"
-    
+
     async def execute_command(
         self, 
         session_id: str, 
@@ -306,141 +351,174 @@ class TerminalService:
         working_directory: str = None,
         connection_id: str = None
     ) -> Dict[str, Any]:
-        """Execute a terminal command."""
+        """
+        Execute a command with enhanced security measures.
+        """
         start_time = time.time()
         
         try:
-            # Check for simple pipeline (commands connected by |)
-            if "|" in command:
-                return await self._execute_simple_pipeline(session_id, command, timeout, working_directory)
-            
             # Validate command
-            is_valid, error_msg = self.validate_command(command)
+            is_valid, error_message = self.validate_command(command)
             if not is_valid:
+                logger.warning("Command validation failed", 
+                             session_id=session_id, command=command, error=error_message)
                 return {
                     "success": False,
                     "stdout": "",
-                    "stderr": error_msg,
-                    "return_code": 1,
-                    "execution_time": time.time() - start_time,
-                    "command": command
-                }
-            
-            # Get or create session
-            session = self.get_session(session_id)
-            if not session:
-                session = self.create_session(session_id, working_directory)
-            
-            working_dir = working_directory or session.get("working_directory", "/")
-            
-            # Add to command history
-            session["command_history"].append(command)
-            if len(session["command_history"]) > 100:
-                session["command_history"] = session["command_history"][-100:]
-            
-            # Also update the global command history
-            if session_id not in self.command_history:
-                self.command_history[session_id] = []
-            self.command_history[session_id].append(command)
-            if len(self.command_history[session_id]) > 100:
-                self.command_history[session_id] = self.command_history[session_id][-100:]
-            
-            # Store the connection ID that initiated this command
-            if connection_id:
-                session["command_connection_id"] = connection_id
-                logger.info(f"[DEBUG] Stored command connection ID {connection_id} for session {session_id}")
-            
-            logger.info(f"[COMMAND DEBUG] Executing command: {command} for session {session_id} in {working_dir}")
-            
-            # Debug: Check what route this command will take
-            if command.strip().startswith("python "):
-                logger.info(f"[ROUTE DEBUG] Command '{command}' will go to _execute_python method")
-            
-            # Route to appropriate handler
-            if command.strip() == "help":
-                return await self._execute_help()
-            elif command.strip() == "pwd":
-                return await self._execute_pwd(session_id, working_dir)
-            elif command.strip().startswith("cd "):
-                return await self._execute_cd(session_id, command)
-            elif command.strip() == "ls" or command.strip().startswith("ls "):
-                return await self._execute_ls(session_id, working_dir, command)
-            elif command.strip().startswith("cat "):
-                return await self._execute_cat(session_id, working_dir, command)
-            elif command.strip().startswith("python "):
-                print(f"[DEBUG] Routing Python command to _execute_python: {command}")  # Force print to see in logs
-                try:
-                    result = await self._execute_python(session_id, working_dir, command, timeout)
-                    logger.info(f"[DEBUG] _execute_python completed successfully")
-                    return result
-                except Exception as e:
-                    logger.error(f"[DEBUG] _execute_python failed with exception: {e}")
-                    return {
-                        "success": False,
-                        "stdout": "",
-                        "stderr": f"Python execution error: {str(e)}\n",
-                        "return_code": 1,
-                        "execution_time": 0.0,
-                        "command": command
-                    }
-            elif command.strip().startswith("pip "):
-                return await self._execute_pip(session_id, working_dir, command, timeout)
-            elif command.strip() == "clear":
-                return await self._execute_clear()
-            elif command.strip().startswith("echo "):
-                return await self._execute_echo(command, session_id)
-            elif command.strip().startswith("mkdir "):
-                return await self._execute_mkdir(session_id, working_dir, command)
-            elif command.strip().startswith("touch "):
-                return await self._execute_touch(session_id, working_dir, command)
-            elif command.strip().startswith("cp "):
-                return await self._execute_cp(session_id, working_dir, command)
-            elif command.strip().startswith("mv "):
-                return await self._execute_mv(session_id, working_dir, command)
-            elif command.strip().startswith("rm "):
-                return await self._execute_rm(session_id, working_dir, command)
-            elif command.strip().startswith("grep "):
-                return await self._execute_grep(session_id, working_dir, command)
-            elif command.strip().startswith("find "):
-                return await self._execute_find(session_id, working_dir, command)
-            elif command.strip().startswith("head "):
-                return await self._execute_head(session_id, working_dir, command)
-            elif command.strip().startswith("tail "):
-                return await self._execute_tail(session_id, working_dir, command)
-            elif command.strip().startswith("wc "):
-                return await self._execute_wc(session_id, working_dir, command)
-            elif command.strip().startswith("sort "):
-                return await self._execute_sort(session_id, working_dir, command)
-            elif command.strip().startswith("uniq "):
-                return await self._execute_uniq(session_id, working_dir, command)
-            else:
-                # TEMPORARILY DISABLE GENERAL HANDLER to fix dual processing issue
-                print(f"[DEBUG] GENERAL HANDLER DISABLED - command: {command}")
-                return {
-                    "success": False,
-                    "stdout": "",
-                    "stderr": f"Command not supported: {command}\n",
+                    "stderr": f"Command validation failed: {error_message}\n",
                     "return_code": 1,
                     "execution_time": 0.0,
-                    "command": command
+                    "command": command,
+                    "security_violation": True
                 }
-                
+            
+            # Update session activity
+            if session_id in self.sessions:
+                self.sessions[session_id]["last_activity"] = datetime.utcnow()
+                self.sessions[session_id]["command_count"] += 1
+            
+            # Create sandbox for execution
+            sandbox = CommandSandbox(session_id, working_directory or "/")
+            
+            async with sandbox.create_sandbox() as (sandbox_dir, env):
+                # Execute command in sandbox
+                result = await self._execute_in_sandbox(
+                    session_id, command, timeout, sandbox_dir, env
+                )
+            
+            # Update execution statistics
+            execution_time = time.time() - start_time
+            self._update_execution_stats(session_id, execution_time, result)
+            
+            # Log execution
+            logger.info("Command executed", 
+                       session_id=session_id, command=command, 
+                       execution_time=execution_time, success=result["success"])
+            
+            return result
+            
         except Exception as e:
-            logger.error(
-                "Command execution error",
-                session_id=session_id,
-                command=command,
-                error=str(e)
-            )
+            logger.error("Command execution failed", 
+                        session_id=session_id, command=command, error=str(e))
             return {
                 "success": False,
                 "stdout": "",
-                "stderr": f"Command execution error: {str(e)}\n",
+                "stderr": f"Execution error: {str(e)}\n",
                 "return_code": 1,
                 "execution_time": time.time() - start_time,
                 "command": command
             }
     
+    async def _execute_in_sandbox(
+        self, 
+        session_id: str, 
+        command: str, 
+        timeout: int, 
+        sandbox_dir: str, 
+        env: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Execute command in sandboxed environment."""
+        try:
+            # Create process with resource limits
+            process = await asyncio.create_subprocess_exec(
+                *shlex.split(command),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE,
+                cwd=sandbox_dir,
+                env=env,
+                preexec_fn=ResourceLimits().set_process_limits
+            )
+            
+            # Store active process
+            self.active_processes[session_id] = process
+            
+            # Execute with timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout
+                )
+                
+                return_code = process.returncode
+                
+            except asyncio.TimeoutError:
+                # Process timed out, kill it
+                process.kill()
+                await process.wait()
+                
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": f"Command timed out after {timeout} seconds\n",
+                    "return_code": -1,
+                    "execution_time": timeout,
+                    "command": command,
+                    "timeout": True
+                }
+            
+            finally:
+                # Remove from active processes
+                self.active_processes.pop(session_id, None)
+            
+            # Check for resource limit violations
+            if return_code == -9:  # SIGKILL
+                return {
+                    "success": False,
+                    "stdout": stdout.decode('utf-8', errors='ignore'),
+                    "stderr": stderr.decode('utf-8', errors='ignore') + "\nProcess killed due to resource limits\n",
+                    "return_code": return_code,
+                    "execution_time": time.time(),
+                    "command": command,
+                    "resource_limit_exceeded": True
+                }
+            
+            return {
+                "success": return_code == 0,
+                "stdout": stdout.decode('utf-8', errors='ignore'),
+                "stderr": stderr.decode('utf-8', errors='ignore'),
+                "return_code": return_code,
+                "execution_time": time.time(),
+                "command": command
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Sandbox execution error: {str(e)}\n",
+                "return_code": 1,
+                "execution_time": time.time(),
+                "command": command
+            }
+    
+    def _update_execution_stats(self, session_id: str, execution_time: float, result: Dict[str, Any]):
+        """Update execution statistics for the session."""
+        if session_id not in self.execution_stats:
+            self.execution_stats[session_id] = {
+                "total_commands": 0,
+                "total_execution_time": 0,
+                "successful_commands": 0,
+                "failed_commands": 0,
+                "security_violations": 0,
+                "resource_violations": 0
+            }
+        
+        stats = self.execution_stats[session_id]
+        stats["total_commands"] += 1
+        stats["total_execution_time"] += execution_time
+        
+        if result["success"]:
+            stats["successful_commands"] += 1
+        else:
+            stats["failed_commands"] += 1
+        
+        if result.get("security_violation"):
+            stats["security_violations"] += 1
+        
+        if result.get("resource_limit_exceeded"):
+            stats["resource_violations"] += 1
+
     async def _execute_simple_pipeline(self, session_id: str, command: str, timeout: int, working_directory: str) -> Dict[str, Any]:
         """Execute a simple pipeline like 'sort file | uniq'."""
         try:

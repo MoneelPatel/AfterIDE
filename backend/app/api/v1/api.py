@@ -71,6 +71,13 @@ try:
 except Exception as e:
     print(f"⚠️  Setup router not available: {e}")
 
+try:
+    from app.api.v1.endpoints import security
+    api_router.include_router(security.router, prefix="/security", tags=["security"])
+    print("✅ Security router included")
+except Exception as e:
+    print(f"⚠️  Security router not available: {e}")
+
 # Add a status endpoint to show which routers are available
 @api_router.get("/status")
 async def api_status():
@@ -84,6 +91,7 @@ async def api_status():
             "/files",
             "/executions",
             "/submissions",
-            "/workspace"
+            "/workspace",
+            "/security"
         ]
     } 
