@@ -587,8 +587,6 @@ const XTerminal: React.FC<XTerminalProps> = ({ containerHeight, autoFollowTermin
       terminal.onData((data) => {
         inputCounter++
         const code = data.charCodeAt(0)
-        console.log(`XTerminal: onData called #${inputCounter} - code:`, code, 'data:', JSON.stringify(data), 'terminalMode:', terminalModeRef.current)
-
         if (code === 3) { // Ctrl+C
           // Send interrupt signal to backend
           console.log('XTerminal: Ctrl+C pressed, sending interrupt signal')
