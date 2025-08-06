@@ -286,7 +286,23 @@ class SecurityHeaders:
             "X-Frame-Options": "DENY",
             "X-XSS-Protection": "1; mode=block",
             "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:;",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://unpkg.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; worker-src 'self' blob:; child-src 'self' blob:;",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+            "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+
+    @staticmethod
+    def get_docs_security_headers() -> Dict[str, str]:
+        """Get security headers specifically for documentation endpoints (Swagger UI, ReDoc)."""
+        return {
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "SAMEORIGIN",  # Allow embedding in same origin
+            "X-XSS-Protection": "1; mode=block",
+            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://unpkg.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; worker-src 'self' blob: data:; child-src 'self' blob: data:; frame-src 'self' blob: data:;",
             "Referrer-Policy": "strict-origin-when-cross-origin",
             "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
             "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -334,6 +350,14 @@ class SecurityMiddleware:
             response = await call_next(request)
             # Still add security headers
             for header, value in SecurityHeaders.get_security_headers().items():
+                response.headers[header] = value
+            return response
+        
+        # Use documentation-specific headers for docs endpoints
+        if request.url.path in ["/docs", "/redoc", "/openapi.json"] or request.url.path.startswith("/docs/"):
+            response = await call_next(request)
+            # Add documentation-specific security headers
+            for header, value in SecurityHeaders.get_docs_security_headers().items():
                 response.headers[header] = value
             return response
         
