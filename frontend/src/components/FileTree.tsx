@@ -37,8 +37,6 @@ interface FileTreeProps {
   onFolderExpansion?: (folderPath: string) => void
   expandedFolders?: Set<string>
   onExpandedFoldersChange?: (expandedFolders: Set<string>) => void
-  autoFollowTerminal?: boolean
-  onAutoFollowTerminalChange?: (enabled: boolean) => void
 }
 
 // Helper function to get file icon and language based on extension
@@ -84,8 +82,6 @@ const FileTree: React.FC<FileTreeProps> = ({
   onFolderExpansion,
   expandedFolders: propExpandedFolders,
   onExpandedFoldersChange,
-  autoFollowTerminal,
-  onAutoFollowTerminalChange
 }) => {
   const [draggedFile, setDraggedFile] = useState<string | null>(null);
   const [dragOverFile, setDragOverFile] = useState<string | null>(null);
@@ -375,20 +371,6 @@ const FileTree: React.FC<FileTreeProps> = ({
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-medium text-gray-900 dark:text-white">Files</h3>
         <div className="flex items-center space-x-2">
-          {/* Auto-follow terminal toggle */}
-          {onAutoFollowTerminalChange && (
-            <button
-              onClick={() => onAutoFollowTerminalChange(!autoFollowTerminal)}
-              className={`p-1 rounded text-xs transition-colors ${
-                autoFollowTerminal 
-                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-              title={autoFollowTerminal ? 'Disable auto-follow terminal' : 'Enable auto-follow terminal'}
-            >
-              {autoFollowTerminal ? '📂' : '📁'}
-            </button>
-          )}
           {onFileCreate && (
             <div className="relative">
               <button

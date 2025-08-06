@@ -205,12 +205,14 @@ class FileRenamedMessage(BaseMessage):
 class FileListMessage(BaseMessage):
     """File list request message."""
     directory: Optional[str] = None
+    for_tab_completion: Optional[bool] = False
 
 
 class FileListResponseMessage(BaseMessage):
     """File list response message."""
     files: List[Dict[str, Any]]
     directory: str
+    for_tab_completion: Optional[bool] = False
 
 
 # Notification Messages

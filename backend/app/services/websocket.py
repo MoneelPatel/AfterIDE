@@ -538,7 +538,8 @@ class WebSocketManager:
                 response = FileListResponseMessage(
                     type=MessageType.FILE_LIST_RESPONSE,
                     files=files,
-                    directory=file_msg.directory or "/"
+                    directory=file_msg.directory or "/",
+                    for_tab_completion=file_msg.for_tab_completion or False
                 )
                 
                 await self.send_message(connection_id, response)

@@ -10,10 +10,9 @@ interface XTerminalProps {
   onCommand?: (command: string) => void
   isConnected?: boolean
   containerHeight?: number // Add prop to track container height changes
-  autoFollowTerminal?: boolean // Show if file explorer follows terminal directory
 }
 
-const XTerminal: React.FC<XTerminalProps> = ({ containerHeight, autoFollowTerminal }) => {
+const XTerminal: React.FC<XTerminalProps> = ({ containerHeight }) => {
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -52,14 +51,6 @@ const XTerminal: React.FC<XTerminalProps> = ({ containerHeight, autoFollowTermin
   const processedMessages = useRef<Set<string>>(new Set())
   const lastMessageRef = useRef<{key: string, timestamp: number} | null>(null)
 
-  // Show auto-follow status in terminal
-  useEffect(() => {
-    if (autoFollowTerminal && xtermRef.current) {
-      const terminal = xtermRef.current
-      terminal.write('\r\n\x1b[33m[File Explorer: Auto-following terminal directory]\x1b[0m\r\n')
-    }
-  }, [autoFollowTerminal])
-
   // Tab completion functions
   const getFileSuggestions = useCallback(async (partial: string): Promise<string[]> => {
     if (!terminalConnectedRef.current) {
@@ -94,10 +85,11 @@ const XTerminal: React.FC<XTerminalProps> = ({ containerHeight, autoFollowTermin
         resolve([])
       }, 2000) // 2 second timeout
 
-      // Send file list request via WebSocket
+      // Send file list request via WebSocket for tab completion only
       sendFilesMessage({
         type: 'file_list',
-        directory: workingDirectoryRef.current
+        directory: workingDirectoryRef.current,
+        for_tab_completion: true // Flag to indicate this is for tab completion, not file explorer
       })
 
       // Set up one-time handler for file list response

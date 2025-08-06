@@ -59,7 +59,6 @@ const EditorPage: React.FC = () => {
   const [fileContent, setFileContent] = useState('')
   const [terminalOutput, setTerminalOutput] = useState('')
   const [loadedDirectories, setLoadedDirectories] = useState<Set<string>>(new Set(['/']))
-  const [autoFollowTerminal, setAutoFollowTerminal] = useState(false) // Control whether file explorer follows terminal directory
   const containerRef = useRef<HTMLDivElement>(null)
   const { theme } = useTheme()
   const { isAuthenticated, user } = useAuthStore()
@@ -283,7 +282,15 @@ const EditorPage: React.FC = () => {
   useEffect(() => {
     const handleFilesMessage = (message: any) => {
       if (message.type === 'file_list_response') {
+        // Ignore file list responses that are for tab completion only
+        if (message.for_tab_completion) {
+          console.log('🔍 Ignoring file list response for tab completion')
+          return
+        }
+        
         console.log('🔍 File list response received:', message)
+        console.log('🔍 Current files count before update:', files.length)
+        console.log('🔍 Requested directory:', message.directory)
         
         // Convert backend file format to frontend FileNode format
         const backendFiles = message.files || []
@@ -300,6 +307,7 @@ const EditorPage: React.FC = () => {
         }))
         
         console.log('🔍 Converted files:', convertedFiles)
+        console.log('🔍 Converted files count:', convertedFiles.length)
         
         // SECURITY FIX: Replace files instead of merging to prevent cross-user file leakage
         // Only merge files if we're loading a subdirectory, not the root
@@ -317,32 +325,28 @@ const EditorPage: React.FC = () => {
             // Flatten existing hierarchical structure to get all files at all levels
             const existingFlatFiles = flattenFileTree(prevFiles)
             
-            // Only keep existing files that are NOT direct children of the directory being updated
-            // but keep the directory itself and files in other directories
+            // For manual folder expansion, preserve existing files and only update/add new ones
+            console.log('🔍 Manual folder expansion: preserving existing files and updating directory:', requestedDirectory)
+            
+            // First, add ALL existing files to preserve the current state
             existingFlatFiles.forEach(file => {
-              const normalizedRequestedDir = requestedDirectory.endsWith('/') ? requestedDirectory : requestedDirectory + '/'
-              const normalizedFilePath = file.path.endsWith('/') ? file.path : file.path + '/'
-              
-              // Keep the file if:
-              // 1. It's not in the requested directory at all, OR
-              // 2. It's the requested directory itself, OR  
-              // 3. It's in a subdirectory of the requested directory (deeper nesting)
-              const isInRequestedDir = file.path.startsWith(normalizedRequestedDir) && file.path !== requestedDirectory
-              const isDirectChild = isInRequestedDir && !file.path.substring(normalizedRequestedDir.length).includes('/')
-              
-              if (!isDirectChild || file.path === requestedDirectory) {
-                fileMap.set(file.path, file)
-              }
+              fileMap.set(file.path, file)
             })
             
-            // Add new files from the requested directory
-            convertedFiles.forEach(file => fileMap.set(file.path, file))
+            // Then, update/add files from the requested directory
+            // This ensures we don't lose any existing files, only update/add new ones
+            convertedFiles.forEach(file => {
+              fileMap.set(file.path, file)
+            })
             
             const allFlatFiles = Array.from(fileMap.values())
             console.log('🔍 Final merged files:', allFlatFiles)
+            console.log('🔍 Final merged files count:', allFlatFiles.length)
             
             // Build hierarchical tree structure
-            return buildHierarchicalTree(allFlatFiles)
+            const result = buildHierarchicalTree(allFlatFiles)
+            console.log('🔍 Final hierarchical tree count:', result.length)
+            return result
           })
         }
         
@@ -599,20 +603,11 @@ const EditorPage: React.FC = () => {
             directory: '/'
           })
         } else if (message.command.startsWith('cd ')) {
-          // Directory change detected - DO NOT update file explorer automatically
+          // Directory change detected - terminal and file explorer are now completely independent
+          console.log('Directory change detected in terminal:', message.working_directory)
+          // Terminal directory changes no longer affect the file explorer
           // This prevents unwanted expansion/shrinking of the file tree
-          console.log('Directory change detected in terminal - file explorer will remain stable')
-          
-          // Only update file explorer if auto-follow is enabled
-          if (autoFollowTerminal && message.working_directory) {
-            console.log('Auto-follow enabled: updating file explorer to match terminal directory:', message.working_directory)
-            sendFilesMessage({
-              type: 'file_list',
-              directory: message.working_directory
-            })
-          }
         }
-        // Removed automatic file tree updates for cd commands to prevent unwanted expansion/shrinking
       }
     }
 
@@ -621,7 +616,7 @@ const EditorPage: React.FC = () => {
     return () => {
       offTerminalMessage('command_response', handleTerminalMessage)
     }
-  }, [onTerminalMessage, offTerminalMessage, sendFilesMessage, autoFollowTerminal])
+  }, [onTerminalMessage, offTerminalMessage, sendFilesMessage])
 
   // Handle resize functionality
   useEffect(() => {
@@ -1262,8 +1257,6 @@ const EditorPage: React.FC = () => {
                 onFolderExpansion={handleFolderExpansion}
                 expandedFolders={expandedFolders}
                 onExpandedFoldersChange={setExpandedFolders}
-                autoFollowTerminal={autoFollowTerminal}
-                onAutoFollowTerminalChange={setAutoFollowTerminal}
               />
             </div>
             
@@ -1326,7 +1319,6 @@ const EditorPage: React.FC = () => {
               onCommand={handleTerminalCommand} 
               isConnected={terminalConnected}
               containerHeight={100 - editorHeight}
-              autoFollowTerminal={autoFollowTerminal}
             />
           </div>
         </div>
